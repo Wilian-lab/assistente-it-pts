@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.wlilan.backend_assistent.Security.SetorSupport;
 import com.wlilan.backend_assistent.exeptions.UserFoundException;
 import com.wlilan.backend_assistent.it.ItEntity;
 import com.wlilan.backend_assistent.it.it.repository.ItRepository;
@@ -17,13 +18,15 @@ public class UpdateItUseCase {
     this.itRepository = itRepository;
   }
 
-  public ItEntity execute(UUID id, ItEntity payload) {
+  public ItEntity execute(UUID id, ItEntity payload, String setorAtivo) {
+    var normalizedSetor = SetorSupport.normalize(setorAtivo);
+    payload.setSetor(normalizedSetor);
     validate(payload);
 
-    var existing = this.itRepository.findById(id)
+    var existing = this.itRepository.findByIdAndSetor(id, normalizedSetor)
         .orElseThrow(() -> new RuntimeException("IT nao encontrada"));
 
-    this.itRepository.findByDocumentoAndRevisaoAndIdNot(payload.getDocumento(), payload.getRevisao(), id)
+    this.itRepository.findByDocumentoAndRevisaoAndSetorAndIdNot(payload.getDocumento(), payload.getRevisao(), normalizedSetor, id)
         .ifPresent(conflict -> {
           throw new UserFoundException("Ja existe uma IT cadastrada com este documento e revisao");
         });
@@ -35,6 +38,9 @@ public class UpdateItUseCase {
     existing.setPaginaAtual(payload.getPaginaAtual());
     existing.setTotalPaginas(payload.getTotalPaginas());
     existing.setPrazoTreinamentoDias(payload.getPrazoTreinamentoDias());
+    existing.setTitulo(payload.getTitulo());
+    existing.setFileUrl(payload.getFileUrl());
+    existing.setSetor(normalizedSetor);
 
     return this.itRepository.save(existing);
   }
@@ -54,6 +60,10 @@ public class UpdateItUseCase {
 
     if (it.getStatus() == null || it.getStatus().isBlank()) {
       throw new IllegalArgumentException("Status e obrigatorio");
+    }
+
+    if (SetorSupport.normalize(it.getSetor()).isBlank()) {
+      throw new IllegalArgumentException("Setor e obrigatorio");
     }
 
     if (it.getDataPublicacao() == null) {

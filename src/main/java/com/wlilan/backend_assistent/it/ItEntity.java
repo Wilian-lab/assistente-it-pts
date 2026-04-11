@@ -29,6 +29,13 @@ public class ItEntity {
   @NotBlank(message = "Status e obrigatorio")
   private String status;
 
+  private String titulo;
+
+  private String fileUrl;
+
+  @NotBlank(message = "Setor e obrigatorio")
+  private String setor;
+
   @NotNull(message = "Data de publicacao e obrigatoria")
   private LocalDateTime dataPublicacao;
 

@@ -2,6 +2,7 @@ package com.wlilan.backend_assistent.it.it.usecases;
 
 import org.springframework.stereotype.Service;
 
+import com.wlilan.backend_assistent.Security.SetorSupport;
 import com.wlilan.backend_assistent.exeptions.UserFoundException;
 import com.wlilan.backend_assistent.it.ItEntity;
 import com.wlilan.backend_assistent.it.it.repository.ItRepository;
@@ -15,10 +16,12 @@ public class CreateItUseCase {
     this.itRepository = itRepository;
   }
 
-  public ItEntity execute(ItEntity it) {
+  public ItEntity execute(ItEntity it, String setorAtivo) {
+    var normalizedSetor = SetorSupport.normalize(setorAtivo);
+    it.setSetor(normalizedSetor);
     validate(it);
 
-    this.itRepository.findByDocumentoAndRevisao(it.getDocumento(), it.getRevisao())
+    this.itRepository.findByDocumentoAndRevisaoAndSetor(it.getDocumento(), it.getRevisao(), normalizedSetor)
         .ifPresent(existing -> {
           throw new UserFoundException("Ja existe uma IT cadastrada com este documento e revisao");
         });
@@ -41,6 +44,10 @@ public class CreateItUseCase {
 
     if (it.getStatus() == null || it.getStatus().isBlank()) {
       throw new IllegalArgumentException("Status e obrigatorio");
+    }
+
+    if (SetorSupport.normalize(it.getSetor()).isBlank()) {
+      throw new IllegalArgumentException("Setor e obrigatorio");
     }
 
     if (it.getDataPublicacao() == null) {

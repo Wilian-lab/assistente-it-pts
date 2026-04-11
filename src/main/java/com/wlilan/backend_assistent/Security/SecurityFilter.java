@@ -21,6 +21,9 @@ import jakarta.servlet.http.HttpServletResponse;
 @Component
 public class SecurityFilter extends OncePerRequestFilter {
 
+  public static final String AUTH_ERROR_CODE_ATTRIBUTE = "auth_error_code";
+  public static final String AUTH_ERROR_TOKEN_EXPIRED = "token_expired";
+
   private static final Logger log = LoggerFactory.getLogger(SecurityFilter.class);
 
   private final TokenService tokenService;
@@ -41,15 +44,17 @@ public class SecurityFilter extends OncePerRequestFilter {
     var token = recoverToken(request);
     if (token != null) {
       log.info("Authorization header found. Token prefix={}...", token.substring(0, Math.min(12, token.length())));
-      var subject = this.tokenService.validateToken(token);
+      var validation = this.tokenService.validate(token);
 
-      if (subject != null) {
-        log.info("JWT validated. Subject={}", subject);
-        var usuarioOpt = this.usuarioRepository.findByEmail(subject);
+      if (validation.isValid()) {
+        log.info("JWT validated. Subject={}", validation.subject());
+        var setorAtivo = SetorSupport.normalize(validation.setorAtivo());
+        var usuarioOpt = this.usuarioRepository.findByEmail(validation.subject());
         if (usuarioOpt.isPresent()) {
           var usuario = usuarioOpt.get();
+              usuario.setSetorAtivo(setorAtivo);
               var role = usuario.getRole() != null ? usuario.getRole() : Role.USER;
-              log.info("User found for subject={}. role={}", subject, role);
+              log.info("User found for subject={}. role={} setor={}", validation.subject(), role, setorAtivo);
               var authorities = List.of(
                   new SimpleGrantedAuthority("ROLE_" + role.name()));
               var authentication = new UsernamePasswordAuthenticationToken(
@@ -59,9 +64,12 @@ public class SecurityFilter extends OncePerRequestFilter {
 
               SecurityContextHolder.getContext().setAuthentication(authentication);
         } else {
-          log.warn("JWT validated but no user found with email={}", subject);
+          log.warn("JWT validated but no user found with email={}", validation.subject());
         }
       } else {
+        if (validation.isExpired()) {
+          request.setAttribute(AUTH_ERROR_CODE_ATTRIBUTE, AUTH_ERROR_TOKEN_EXPIRED);
+        }
         log.warn("JWT validation returned null subject for request {}", request.getRequestURI());
       }
     } else {

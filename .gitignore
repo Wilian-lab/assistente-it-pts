@@ -32,3 +32,13 @@ build/
 ### VS Code ###
 .vscode/
 backend.md
+
+### Local secrets ###
+.env.properties
+src/main/resources/application-local.properties
+
+### Runtime artifacts ###
+backend-run*.log
+.tmp/
+.mvn-classpath
+.claude/

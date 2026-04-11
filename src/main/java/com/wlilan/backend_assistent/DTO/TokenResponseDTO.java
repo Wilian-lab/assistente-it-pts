@@ -1,4 +1,9 @@
 package com.wlilan.backend_assistent.DTO;
 
-public record TokenResponseDTO(String accessToken) {
+import com.wlilan.backend_assistent.usuario.UsuarioEntity;
+
+public record TokenResponseDTO(
+    String accessToken,
+    long expiresIn,
+    UsuarioEntity user) {
 }

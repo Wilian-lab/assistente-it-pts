@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 
 import com.wlilan.backend_assistent.DTO.AuthDTO;
 import com.wlilan.backend_assistent.DTO.TokenResponseDTO;
+import com.wlilan.backend_assistent.Security.SetorSupport;
 import com.wlilan.backend_assistent.exeptions.InvalidCredentialsException;
 import com.wlilan.backend_assistent.Security.TokenService;
 import com.wlilan.backend_assistent.usuario.Role;
@@ -35,8 +36,14 @@ public class AuthUseCase {
       throw new InvalidCredentialsException();
     }
 
+    var setorAtivo = SetorSupport.normalize(authDTO.setor());
+    if (!SetorSupport.userHasSetor(usuario.getSetores(), setorAtivo)) {
+      throw new InvalidCredentialsException();
+    }
+
     var role = usuario.getRole() != null ? usuario.getRole() : Role.USER;
-    var token = this.tokenService.generateToken(usuario.getEmail(), role.name());
-    return new TokenResponseDTO(token);
+    usuario.setSetorAtivo(setorAtivo);
+    var token = this.tokenService.generateToken(usuario.getEmail(), role.name(), setorAtivo);
+    return new TokenResponseDTO(token, this.tokenService.getExpiresInSeconds(), usuario);
   }
 }

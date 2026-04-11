@@ -36,8 +36,9 @@ public class UsuarioController {
   }
 
   @GetMapping
-  public ResponseEntity<Iterable<UsuarioEntity>> getAll() {
-    var result = this.serviceUseCase.getAll();
+  public ResponseEntity<Iterable<UsuarioEntity>> getAll(Authentication authentication) {
+    var usuario = (UsuarioEntity) authentication.getPrincipal();
+    var result = this.serviceUseCase.getAllBySetor(usuario.getSetorAtivo());
     return ResponseEntity.ok(result);
   }
 }

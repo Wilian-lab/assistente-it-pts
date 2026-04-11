@@ -2,6 +2,7 @@ package com.wlilan.backend_assistent.usuario.controllers;
 
 import java.util.UUID;
 
+import org.springframework.security.core.Authentication;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,8 +31,9 @@ public class AdminUserController {
   }
 
   @GetMapping
-  public ResponseEntity<Iterable<UsuarioEntity>> listAll() {
-    return ResponseEntity.ok(this.serviceUseCase.getAll());
+  public ResponseEntity<Iterable<UsuarioEntity>> listAll(Authentication authentication) {
+    var usuario = (UsuarioEntity) authentication.getPrincipal();
+    return ResponseEntity.ok(this.serviceUseCase.getAllBySetor(usuario.getSetorAtivo()));
   }
 
   @PostMapping
@@ -41,16 +43,19 @@ public class AdminUserController {
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<Void> delete(@PathVariable UUID id) {
-    this.serviceUseCase.deleteById(id);
+  public ResponseEntity<Void> delete(@PathVariable UUID id, Authentication authentication) {
+    var usuario = (UsuarioEntity) authentication.getPrincipal();
+    this.serviceUseCase.deleteById(id, usuario.getSetorAtivo());
     return ResponseEntity.noContent().build();
   }
 
   @PutMapping("/{id}/training")
   public ResponseEntity<UsuarioEntity> updateTraining(
       @PathVariable UUID id,
-      @Valid @RequestBody UserTrainingDTO trainingDTO) {
-    var updated = this.serviceUseCase.updateTraining(id, trainingDTO);
+      @Valid @RequestBody UserTrainingDTO trainingDTO,
+      Authentication authentication) {
+    var usuario = (UsuarioEntity) authentication.getPrincipal();
+    var updated = this.serviceUseCase.updateTraining(id, trainingDTO, usuario.getSetorAtivo());
     return ResponseEntity.ok(updated);
   }
 }

@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.wlilan.backend_assistent.Security.SetorSupport;
 import com.wlilan.backend_assistent.it.ItEntity;
 import com.wlilan.backend_assistent.it.it.repository.ItRepository;
 
@@ -16,8 +17,8 @@ public class GetItByIdUseCase {
     this.itRepository = itRepository;
   }
 
-  public ItEntity execute(UUID id) {
-    return this.itRepository.findById(id)
-        .orElseThrow(() -> new RuntimeException("IT nao encontrada"));
+  public ItEntity execute(UUID id, String setorAtivo) {
+    return this.itRepository.findByIdAndSetor(id, SetorSupport.normalize(setorAtivo))
+        .orElseThrow(() -> new IllegalArgumentException("IT nao encontrada"));
   }
 }

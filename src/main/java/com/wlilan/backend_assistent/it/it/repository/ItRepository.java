@@ -9,8 +9,14 @@ import com.wlilan.backend_assistent.it.ItEntity;
 
 public interface ItRepository extends JpaRepository<ItEntity, UUID> {
 
-  Optional<ItEntity> findByDocumentoAndRevisao(String documento, String revisao);
+  Optional<ItEntity> findByDocumentoAndRevisaoAndSetor(String documento, String revisao, String setor);
 
-  Optional<ItEntity> findByDocumentoAndRevisaoAndIdNot(String documento, String revisao, UUID id);
+  Optional<ItEntity> findByDocumentoAndRevisaoAndSetorAndIdNot(String documento, String revisao, String setor, UUID id);
+
+  Optional<ItEntity> findByFileUrlAndSetor(String fileUrl, String setor);
+
+  java.util.List<ItEntity> findAllBySetorOrderByDocumentoAsc(String setor);
+
+  Optional<ItEntity> findByIdAndSetor(UUID id, String setor);
 
 }

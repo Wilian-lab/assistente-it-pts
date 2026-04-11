@@ -1,19 +1,31 @@
 package com.wlilan.backend_assistent.usuario;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.hibernate.validator.constraints.Length;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.wlilan.backend_assistent.Security.SetorSupport;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -48,6 +60,23 @@ public class UsuarioEntity {
   @Enumerated(EnumType.STRING)
   private Cargo cargo;
 
+  @Column(name = "setor")
+  private String setor;
+
+  @Column(name = "setores")
+  private String setores;
+
+  @JsonIgnore
+  @ManyToMany(fetch = FetchType.EAGER)
+  @JoinTable(
+      name = "usuario_setor",
+      joinColumns = @JoinColumn(name = "usuario_id"),
+      inverseJoinColumns = @JoinColumn(name = "setor_id"))
+  private Set<SetorEntity> setoresRelacionados = new LinkedHashSet<>();
+
+  @Transient
+  private String setorAtivo;
+
   private String lastTrainedIt;
 
   private LocalDate lastTrainingDate;
@@ -55,4 +84,51 @@ public class UsuarioEntity {
   private Integer retrainingIntervalDays;
 
   private LocalDate nextTrainingDate;
+
+  public String getSetor() {
+    var setorPrincipal = this.getSetorCodes().stream().findFirst().orElse(SetorSupport.parseSetor(this.setor));
+    this.setor = setorPrincipal;
+    return setorPrincipal;
+  }
+
+  public String getSetores() {
+    var joined = String.join(",", this.getSetorCodes());
+    this.setores = joined;
+    return joined;
+  }
+
+  public void setSetor(String setor) {
+    this.setor = SetorSupport.parseSetor(setor);
+  }
+
+  public void setSetores(String setores) {
+    this.setores = String.join(",", SetorSupport.parseSetores(setores));
+  }
+
+  public void setSetoresRelacionados(Collection<SetorEntity> setoresRelacionados) {
+    this.setoresRelacionados = new LinkedHashSet<>(setoresRelacionados == null ? Set.of() : setoresRelacionados);
+    this.syncLegacySetorFields();
+  }
+
+  public Set<String> getSetorCodes() {
+    if (this.setoresRelacionados != null && !this.setoresRelacionados.isEmpty()) {
+      return this.setoresRelacionados.stream()
+          .map(SetorEntity::getCodigo)
+          .map(SetorSupport::normalize)
+          .filter(value -> !value.isBlank())
+          .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    var fromLegacy = new LinkedHashSet<>(SetorSupport.parseSetores(this.setores));
+    if (fromLegacy.isEmpty()) {
+      fromLegacy.addAll(SetorSupport.parseSetores(this.setor));
+    }
+    return fromLegacy;
+  }
+
+  public void syncLegacySetorFields() {
+    var codes = this.getSetorCodes();
+    this.setores = String.join(",", codes);
+    this.setor = codes.stream().findFirst().orElse("");
+  }
 }
