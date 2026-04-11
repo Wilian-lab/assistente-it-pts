@@ -2,6 +2,9 @@ package com.wlilan.backend_assistent.assistant;
 
 import java.util.UUID;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.List;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -56,7 +59,7 @@ public class AssistantService {
       intent = maybePromoteToDocumentQuery(selectedIt, request, intent);
       intent = maybeContinueWithinSelectedIt(request, intent);
       var responseMode = resolveResponseMode(intent);
-      var normalizedQuestion = buildNormalizedQuestion(request);
+      var normalizedQuestion = buildNormalizedQuestion(request, intent);
       var documentVersion = this.assistantCacheService.resolveDocumentVersion(selectedIt);
       var effectiveModel = firstNonBlank(modelOverride, this.assistantOpenRouterClient.getPrimaryModel());
       var cacheModelKey = this.assistantCacheService.buildCacheModelKey(
@@ -170,8 +173,11 @@ public class AssistantService {
         .entrySet().stream()
         .map(group -> this.assistantIndexSearcher.findBestEntryForStep(index, group.getKey(), null, null)
             .orElse(group.getValue().get(0)))
-        .filter(this.assistantIndexSearcher::isMeaningfulStepTitle)
-        .map(entry -> new AssistantOptionItem(entry.step, entry.page, entry.what.trim()))
+        .map(entry -> new AssistantOptionItem(
+            entry.step,
+            entry.page,
+            this.assistantIndexSearcher.buildStepOptionTitle(index, entry.step, entry.page, entry.what)))
+        .filter(option -> hasText(option.titulo()))
         .limit(20)
         .toList();
   }
@@ -306,6 +312,10 @@ public class AssistantService {
       String modelOverride) {
     var effectiveModel = firstNonBlank(modelOverride, this.assistantGeminiClient.getPrimaryModel());
     var index = this.assistantIndexSearcher.loadIndex(selectedIt);
+    var documentInfoResponse = buildDocumentInfoResponseIfApplicable(selectedIt, request, index);
+    if (documentInfoResponse != null) {
+      return documentInfoResponse;
+    }
     var matches = request.selectedStep() != null
         ? this.assistantIndexSearcher.findExactOptionMatches(index, request)
         : this.assistantIndexSearcher.findTopMatches(index, selectedIt, request, intent);
@@ -370,10 +380,152 @@ public class AssistantService {
     }
   }
 
+  private AssistantAskResponse buildDocumentInfoResponseIfApplicable(
+      com.wlilan.backend_assistent.it.ItEntity selectedIt,
+      AssistantAskRequest request,
+      com.wlilan.backend_assistent.assistant.model.ItIndex index) {
+    var normalized = this.assistantIntentDetector.normalize(request.message());
+    if (!hasText(normalized)) {
+      return null;
+    }
+
+    if (containsAny(normalized, "revisao", "revisao da it", "qual e a revisao")) {
+      var body = "A revisao atual da IT e " + firstNonBlank(selectedIt.getRevisao(), "nao informada") + ".";
+      return this.assistantResponseFormatter.buildDocumentInfoResponse(
+          selectedIt,
+          request,
+          "Revisao da IT",
+          body,
+          null,
+          "document_info_revision");
+    }
+
+    if (containsAny(normalized, "titulo", "titulo da it", "nome da it")) {
+      var body = "O titulo da IT e " + firstNonBlank(selectedIt.getTitulo(), selectedIt.getDocumento(), "nao informado") + ".";
+      return this.assistantResponseFormatter.buildDocumentInfoResponse(
+          selectedIt,
+          request,
+          "Titulo da IT",
+          body,
+          null,
+          "document_info_title");
+    }
+
+    if (containsAny(normalized, "autor", "autorizador", "data de publicacao", "data de criacao", "data de impressao")) {
+      var metadataLines = new java.util.ArrayList<String>();
+      if (hasText(selectedIt.getRevisao())) {
+        metadataLines.add("- Revisao: " + selectedIt.getRevisao());
+      }
+      if (selectedIt.getDataPublicacao() != null) {
+        metadataLines.add("- Data de publicacao: " + selectedIt.getDataPublicacao().toLocalDate());
+      }
+      var firstEntry = index.entries.stream().findFirst().orElse(null);
+      if (firstEntry != null) {
+        if (hasText(firstEntry.author)) {
+          metadataLines.add("- Autor: " + firstEntry.author.trim());
+        }
+        if (hasText(firstEntry.authorizer)) {
+          metadataLines.add("- Autorizador: " + firstEntry.authorizer.trim());
+        }
+        if (hasText(firstEntry.createDate)) {
+          metadataLines.add("- Data de criacao: " + firstEntry.createDate.trim());
+        }
+        if (hasText(firstEntry.printDate)) {
+          metadataLines.add("- Data de impressao: " + firstEntry.printDate.trim());
+        }
+      }
+
+      if (!metadataLines.isEmpty()) {
+        return this.assistantResponseFormatter.buildDocumentInfoResponse(
+            selectedIt,
+            request,
+            "Informacoes do documento",
+            String.join("\n", metadataLines),
+            null,
+            "document_info_metadata");
+      }
+    }
+
+    var sectionKeywords = List.of(
+        "resultados esperados",
+        "referencias",
+        "anexos",
+        "definicoes",
+        "simbolos e abreviaturas",
+        "abreviaturas",
+        "simbolos",
+        "recursos necessarios");
+
+    for (var keyword : sectionKeywords) {
+      if (!normalized.contains(keyword)) {
+        continue;
+      }
+
+      var sectionEntry = findBestSectionEntry(index, keyword);
+      if (sectionEntry != null) {
+        var content = firstNonBlank(
+            formatSectionContent(sectionEntry),
+            "Encontrei a secao na IT, mas o conteudo estruturado dela esta incompleto.");
+        return this.assistantResponseFormatter.buildDocumentInfoResponse(
+            selectedIt,
+            request,
+            firstNonBlank(sectionEntry.sectionTitle, keyword),
+            content,
+            sectionEntry.page,
+            "document_info_section");
+      }
+    }
+
+    return null;
+  }
+
+  private com.wlilan.backend_assistent.assistant.model.ItIndexEntry findBestSectionEntry(
+      com.wlilan.backend_assistent.assistant.model.ItIndex index,
+      String keyword) {
+    var normalizedKeyword = this.assistantIntentDetector.normalize(keyword);
+    return index.entries.stream()
+        .filter(entry -> "section".equalsIgnoreCase(firstNonBlank(entry.entryType)))
+        .filter(entry -> {
+          var sectionTitle = this.assistantIntentDetector.normalize(firstNonBlank(entry.sectionTitle, entry.what));
+          return hasText(sectionTitle) && sectionTitle.contains(normalizedKeyword);
+        })
+        .max(Comparator
+            .comparingInt((com.wlilan.backend_assistent.assistant.model.ItIndexEntry entry) ->
+                this.assistantIntentDetector.normalize(firstNonBlank(entry.sectionTitle, entry.what)).equals(normalizedKeyword) ? 10 : 0)
+            .thenComparing(entry -> entry.page == null ? Integer.MAX_VALUE : -entry.page))
+        .orElse(null);
+  }
+
+  private String formatSectionContent(com.wlilan.backend_assistent.assistant.model.ItIndexEntry entry) {
+    var content = firstNonBlank(entry.how, entry.what, entry.care);
+    if (!hasText(content)) {
+      return "";
+    }
+
+    var sanitized = content
+        .replace("\r", "\n")
+        .replaceAll("\\s*\\n\\s*", "\n")
+        .trim();
+
+    if (sanitized.contains("•")) {
+      return sanitized.replace("•", "-");
+    }
+    return sanitized;
+  }
+
+  private boolean containsAny(String text, String... snippets) {
+    for (var snippet : snippets) {
+      if (text.contains(this.assistantIntentDetector.normalize(snippet))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private boolean shouldUseFastGroundedResponse(
       AssistantAskRequest request,
       java.util.List<com.wlilan.backend_assistent.assistant.model.RankedEntry> matches) {
-    if (matches == null || matches.isEmpty() || request.selectedStep() == null) {
+    if (matches == null || matches.isEmpty()) {
       return false;
     }
 
@@ -382,12 +534,26 @@ public class AssistantService {
     var strongSingleMatch = matches.size() == 1 && top.score() >= 10d;
     var dominantTopMatch = top.score() >= 14d && (secondScore <= 0d || top.score() >= secondScore * 1.8d);
     var lowSignalFollowUp = this.assistantIntentDetector.isLowSignalFollowUp(request.message());
+    var topEntryType = firstNonBlank(top.entry().entryType).toLowerCase(Locale.ROOT);
+    var topLabel = this.assistantIntentDetector.normalize(firstNonBlank(top.entry().what, top.entry().sectionTitle));
+    var normalizedMessage = this.assistantIntentDetector.normalize(firstNonBlank(request.message()));
+    var exactLabelMatch = hasText(topLabel)
+        && hasText(normalizedMessage)
+        && (normalizedMessage.contains(topLabel) || topLabel.contains(normalizedMessage));
 
     if (lowSignalFollowUp) {
       return false;
     }
 
-    return strongSingleMatch || dominantTopMatch;
+    if (request.selectedStep() != null) {
+      return true;
+    }
+
+    if (!"step".equals(topEntryType) && !"anomaly".equals(topEntryType)) {
+      return false;
+    }
+
+    return exactLabelMatch || strongSingleMatch || dominantTopMatch;
   }
 
   private boolean shouldPromoteToSelectedIt(
@@ -453,7 +619,14 @@ public class AssistantService {
     return value != null && !value.trim().isBlank();
   }
 
-  private String buildNormalizedQuestion(AssistantAskRequest request) {
+  private String buildNormalizedQuestion(AssistantAskRequest request, AssistantIntent intent) {
+    if (request.selectedStep() != null) {
+      var stepKey = buildStepCacheKey(request);
+      if (hasText(stepKey)) {
+        return stepKey;
+      }
+    }
+
     var base = firstNonBlank(request.selectedOptionTitle(), request.message());
     var builder = new StringBuilder(base);
     if (request.selectedStep() != null) {
@@ -476,6 +649,104 @@ public class AssistantService {
       }
     }
 
-    return this.assistantIntentDetector.normalize(builder.toString());
+    var normalized = this.assistantIntentDetector.normalize(builder.toString());
+    if (intent == AssistantIntent.DOCUMENT_QUERY
+        || intent == AssistantIntent.OPERATION
+        || intent == AssistantIntent.ANOMALY) {
+      return canonicalizeDocumentQuestion(normalized);
+    }
+    return normalized;
   }
+
+  private String buildStepCacheKey(AssistantAskRequest request) {
+    var optionTitle = firstNonBlank(request.selectedOptionTitle(), request.message());
+    var normalizedTitle = this.assistantIntentDetector.normalize(optionTitle)
+        .replaceAll("^passo\\s*\\d{1,2}\\s*[:.-]?\\s*", "")
+        .replaceAll("^\\d{1,2}\\s*[:.-]?\\s*", "")
+        .trim();
+
+    var meaningfulTokens = this.assistantIntentDetector.tokenize(normalizedTitle).stream()
+        .map(token -> token.toLowerCase(Locale.ROOT))
+        .filter(token -> token.length() >= 3)
+        .filter(token -> !DOCUMENT_QUERY_STOPWORDS.contains(token))
+        .collect(Collectors.toCollection(LinkedHashSet::new));
+
+    if (!meaningfulTokens.isEmpty()) {
+      return String.join(" ", meaningfulTokens);
+    }
+
+    return "passo " + request.selectedStep();
+  }
+
+  private String canonicalizeDocumentQuestion(String normalized) {
+    var sanitized = this.assistantIntentDetector.normalize(normalized)
+        .replaceAll("^(me\\s+fala\\s+sobre|me\\s+fale\\s+sobre|me\\s+explica|me\\s+explique|o\\s+que\\s+a\\s+it\\s+diz\\s+sobre|o\\s+que\\s+essa\\s+it\\s+diz\\s+sobre|o\\s+que\\s+a\\s+it\\s+fala\\s+sobre|o\\s+que\\s+essa\\s+it\\s+fala\\s+sobre|quero\\s+saber\\s+sobre|fale\\s+sobre|fala\\s+sobre|sobre)\\s+", "")
+        .trim();
+
+    var meaningfulTokens = this.assistantIntentDetector.tokenize(sanitized).stream()
+        .map(token -> token.toLowerCase(Locale.ROOT))
+        .filter(token -> token.length() >= 3)
+        .filter(token -> !DOCUMENT_QUERY_STOPWORDS.contains(token))
+        .collect(Collectors.toCollection(LinkedHashSet::new));
+
+    if (meaningfulTokens.isEmpty()) {
+      return sanitized;
+    }
+
+    return String.join(" ", meaningfulTokens);
+  }
+
+  private static final java.util.Set<String> DOCUMENT_QUERY_STOPWORDS = java.util.Set.of(
+      "me",
+      "fala",
+      "fale",
+      "sobre",
+      "quero",
+      "saber",
+      "explica",
+      "explique",
+      "diz",
+      "diga",
+      "mostra",
+      "mostre",
+      "procure",
+      "buscar",
+      "busca",
+      "consulte",
+      "consulta",
+      "qual",
+      "quais",
+      "que",
+      "essa",
+      "esse",
+      "isso",
+      "nesta",
+      "nessa",
+      "neste",
+      "nesse",
+      "desta",
+      "dessa",
+      "deste",
+      "desse",
+      "it",
+      "pdf",
+      "documento",
+      "pagina",
+      "passo",
+      "por",
+      "para",
+      "com",
+      "dos",
+      "das",
+      "do",
+      "da",
+      "de",
+      "no",
+      "na",
+      "nos",
+      "nas",
+      "um",
+      "uma",
+      "uns",
+      "umas");
 }

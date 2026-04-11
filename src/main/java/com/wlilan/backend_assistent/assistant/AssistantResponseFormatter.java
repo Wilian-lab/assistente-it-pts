@@ -181,6 +181,44 @@ public class AssistantResponseFormatter {
         .build();
   }
 
+  public AssistantAskResponse buildDocumentInfoResponse(
+      ItEntity selectedIt,
+      AssistantAskRequest request,
+      String title,
+      String body,
+      Integer page,
+      String mode) {
+    var lines = new ArrayList<String>();
+    lines.add("**" + firstNonBlank(title, "Informacoes da IT") + "**");
+    var intro = buildDocumentInfoIntro(selectedIt, title);
+    if (hasText(intro)) {
+      lines.add(intro);
+      lines.add("");
+    }
+    lines.add(formatDocumentInfoBody(title, body));
+    lines.add("");
+    lines.add("**Fonte**");
+    lines.add(buildDocumentInfoSource(selectedIt, request, page));
+    lines.add("");
+    lines.add("Deseja saber algo mais?");
+
+    return AssistantAskResponse.builder()
+        .message(String.join("\n", lines))
+        .sourceType("it_grounded_fast")
+        .documento(firstNonBlank(selectedIt.getDocumento(), request.documentCode()))
+        .titulo(firstNonBlank(selectedIt.getTitulo(), request.documentTitle(), selectedIt.getDocumento()))
+        .revisao(selectedIt.getRevisao())
+        .downloadUrl("/it/" + selectedIt.getId() + "/file")
+        .previewUrl("/it/" + selectedIt.getId() + "/file")
+        .warnings(List.of())
+        .evidence(List.of())
+        .metadata(Map.of(
+            "mode", firstNonBlank(mode, "document_info_local"),
+            "responseMode", AssistantResponseMode.DOCUMENT_GROUNDED.name().toLowerCase(Locale.ROOT),
+            "cacheHit", false))
+        .build();
+  }
+
   public AssistantAskResponse buildConversationResponse(
       ItEntity selectedIt,
       AssistantAskRequest request,
@@ -305,9 +343,12 @@ public class AssistantResponseFormatter {
         Nunca invente equipamento, processo, linha, etapa, acao ou contexto que nao esteja claramente presente no material recuperado.
         Nunca complete frases truncadas, tabelas quebradas ou campos incompletos supondo uma continuacao que nao esta escrita.
         Se um trecho estiver incompleto ou ambiguo, deixe isso explicito em vez de adivinhar.
+        Nunca interprete siglas, termos tecnicos, nomes de equipamentos ou palavras da IT com base no que voce acha que significam.
+        Se a IT disser "Spin filtrado", "ICM", "Vetter" ou qualquer outro termo tecnico, mantenha o termo como esta em vez de explicar por conta propria o que ele seria.
+        Nunca use expressoes como "imagino", "provavelmente", "deve ser", "parece ser" ou "pode significar".
         Se o contexto recuperado for insuficiente, diga isso com clareza.
         Se o termo perguntado nao aparecer ou nao puder ser confirmado pela IT, diga que nao encontrou esse ponto na IT selecionada.
-        Leia os trechos recuperados e explique o que eles querem dizer para o usuario.
+        Leia os trechos recuperados e resuma apenas o que esta explicitamente escrito na IT para o usuario.
         Se houver mais de um trecho relevante, voce pode combinar as informacoes em uma resposta unica.
         Prefira respostas organizadas em partes curtas, com respiro entre blocos.
         Nao entregue tudo em um unico paragrafo longo e misturado.
@@ -346,7 +387,8 @@ public class AssistantResponseFormatter {
       }
     }
 
-    userPrompt.append("\nResponda em tom conversacional. Explique o que os trechos da IT querem dizer.\n");
+    userPrompt.append("\nResponda em tom conversacional, mas resuma somente o que esta escrito na IT.\n");
+    userPrompt.append("Nao explique o significado tecnico dos termos nem acrescente interpretacoes suas.\n");
     userPrompt.append("Organize a resposta em partes curtas e separadas quando isso melhorar a leitura.\n");
     userPrompt.append("Se houver acao, cuidado ou fonte, separe esses pontos visualmente em vez de misturar tudo em um bloco unico.\n");
 
@@ -500,13 +542,22 @@ public class AssistantResponseFormatter {
       ItIndex index,
       ItIndexEntry entry) {
     var enrichment = enrichOperationEntry(entry, index);
+    var operationContext = extractOperationContext(entry, enrichment);
     var lines = new ArrayList<String>();
     lines.add(buildFastSummaryLine(entry, firstNonBlank(enrichment.what(), entry.what)));
+    lines.add("");
+    lines.add("**Contexto da IT**");
+    lines.add(buildOperationContextBlock(selectedIt, entry));
+    if (hasText(operationContext)) {
+      lines.add("");
+      lines.add("**Resumo**");
+      lines.add(operationContext);
+    }
     lines.add("");
     lines.add("**O que fazer**");
     lines.add(firstNonBlank(enrichment.what(), cleanGeneralLine(entry.what), "Nao identificado."));
     lines.add("");
-    lines.add("**Como fazer**");
+    lines.add("**" + resolveOperationDetailHeading(enrichment, entry) + "**");
     lines.add(formatBulletBlock(
         firstNonBlank(enrichment.how(), entry.how, entry.actionText),
         "Nao consegui localizar um passo a passo claro nesse trecho da IT."));
@@ -514,7 +565,7 @@ public class AssistantResponseFormatter {
     var careText = firstNonBlank(enrichment.care(), entry.care);
     if (hasText(careText)) {
       lines.add("");
-      lines.add("**Cuidados**");
+      lines.add("**Cuidados especiais**");
       lines.add(formatBulletBlock(careText, "Nao identificado."));
     }
 
@@ -524,6 +575,93 @@ public class AssistantResponseFormatter {
     lines.add("");
     lines.add("Deseja saber algo mais?");
     return String.join("\n", lines);
+  }
+
+  private String buildOperationContextBlock(ItEntity selectedIt, ItIndexEntry entry) {
+    var lines = new ArrayList<String>();
+    lines.add("- Titulo: " + firstNonBlank(selectedIt.getTitulo(), selectedIt.getDocumento(), entry.documentTitle, "IT selecionada"));
+    lines.add("- Documento: " + firstNonBlank(selectedIt.getDocumento(), entry.documentCode, "-"));
+    if (hasReliableRevision(selectedIt.getRevisao())) {
+      lines.add("- Revisao: " + selectedIt.getRevisao());
+    }
+    if (selectedIt.getDataPublicacao() != null) {
+      lines.add("- Data de publicacao: " + selectedIt.getDataPublicacao().toLocalDate());
+    }
+    if (entry.step != null) {
+      lines.add("- Passo: " + entry.step);
+    }
+    if (entry.page != null) {
+      lines.add("- Pagina: " + entry.page);
+    }
+    return String.join("\n", lines);
+  }
+
+  private String resolveOperationDetailHeading(OperationEnrichment enrichment, ItIndexEntry entry) {
+    var normalizedWhat = this.intentDetector.normalize(firstNonBlank(enrichment.what(), entry.what));
+    if (normalizedWhat.startsWith("monitorar")) {
+      return "O que monitorar";
+    }
+    return "Como fazer";
+  }
+
+  private String extractOperationContext(ItIndexEntry entry, OperationEnrichment enrichment) {
+    var rawHow = firstNonBlank(entry.how, "");
+    if (!hasText(rawHow)) {
+      return "";
+    }
+
+    var normalizedHow = AssistantTextSanitizer.sanitize(rawHow)
+        .replace("\r", "\n")
+        .trim();
+    if (!hasText(normalizedHow)) {
+      return "";
+    }
+
+    var bulletIndex = findFirstBulletIndex(normalizedHow);
+    var leadingText = bulletIndex > 0
+        ? normalizedHow.substring(0, bulletIndex).trim()
+        : normalizedHow;
+
+    leadingText = leadingText.replaceAll("\\s+", " ").trim();
+    if (!hasText(leadingText)) {
+      return "";
+    }
+
+    var normalizedLeading = this.intentDetector.normalize(leadingText);
+    var normalizedWhat = this.intentDetector.normalize(firstNonBlank(enrichment.what(), entry.what));
+    if (hasText(normalizedWhat) && normalizedLeading.equals(normalizedWhat)) {
+      return "";
+    }
+
+    return toSentence(leadingText);
+  }
+
+  private int findFirstBulletIndex(String value) {
+    if (!hasText(value)) {
+      return -1;
+    }
+
+    var newlineBullet = value.indexOf("\n•");
+    if (newlineBullet >= 0) {
+      return newlineBullet;
+    }
+
+    newlineBullet = value.indexOf("\n-");
+    if (newlineBullet >= 0) {
+      return newlineBullet;
+    }
+
+    newlineBullet = value.indexOf("\n*");
+    if (newlineBullet >= 0) {
+      return newlineBullet;
+    }
+
+    var inlineBullet = value.indexOf("•");
+    if (inlineBullet >= 0) {
+      return inlineBullet;
+    }
+
+    return value.indexOf("- ");
   }
 
   private String buildFocusedSectionAnswer(
@@ -795,6 +933,13 @@ public class AssistantResponseFormatter {
     var entry = matches.get(0).entry();
     var lines = new ArrayList<String>();
     lines.add("Documento: " + resolveDocumentCode(selectedIt, request, matches));
+    lines.add("Titulo: " + firstNonBlank(selectedIt.getTitulo(), request.documentTitle(), entry.documentTitle, selectedIt.getDocumento()));
+    if (hasReliableRevision(selectedIt.getRevisao())) {
+      lines.add("Revisao: " + selectedIt.getRevisao());
+    }
+    if (selectedIt.getDataPublicacao() != null) {
+      lines.add("Data de publicacao: " + selectedIt.getDataPublicacao().toLocalDate());
+    }
     if (entry.page != null) {
       lines.add("Pagina: " + entry.page);
     }
@@ -1320,6 +1465,115 @@ public class AssistantResponseFormatter {
       return left.trim();
     }
     return left.trim() + " " + right.trim();
+  }
+
+  private String buildDocumentInfoSource(ItEntity selectedIt, AssistantAskRequest request, Integer page) {
+    var lines = new ArrayList<String>();
+    lines.add("Documento: " + firstNonBlank(selectedIt.getDocumento(), request.documentCode(), "-"));
+    lines.add("Titulo: " + firstNonBlank(selectedIt.getTitulo(), request.documentTitle(), selectedIt.getDocumento(), "-"));
+    if (hasReliableRevision(selectedIt.getRevisao())) {
+      lines.add("Revisao: " + selectedIt.getRevisao());
+    }
+    if (page != null) {
+      lines.add("Pagina: " + page);
+    }
+    return String.join("\n", lines);
+  }
+
+  private String buildDocumentInfoIntro(ItEntity selectedIt, String title) {
+    var safeTitle = firstNonBlank(title, "esse ponto");
+    var documentTitle = firstNonBlank(selectedIt.getTitulo(), selectedIt.getDocumento(), "a IT selecionada");
+    return switch (this.intentDetector.normalize(safeTitle)) {
+      case "resultados esperados" ->
+          "Na IT sobre " + documentTitle + ", encontrei os seguintes resultados esperados:";
+      case "referencias" ->
+          "Na IT sobre " + documentTitle + ", estas sao as referencias registradas:";
+      case "anexos" ->
+          "Na IT sobre " + documentTitle + ", estes sao os anexos informados:";
+      case "definicoes" ->
+          "Na IT sobre " + documentTitle + ", estas sao as definicoes registradas:";
+      case "simbolos e abreviaturas", "abreviaturas", "simbolos" ->
+          "Na IT sobre " + documentTitle + ", estes sao os simbolos e abreviaturas informados:";
+      case "recursos necessarios" ->
+          "Na IT sobre " + documentTitle + ", estes sao os recursos necessarios descritos:";
+      default -> "";
+    };
+  }
+
+  private String formatDocumentInfoBody(String title, String body) {
+    var content = firstNonBlank(body, "Nao encontrei esse ponto de forma clara na IT selecionada.")
+        .replace("\r", "\n")
+        .replaceAll("\\s*\\n\\s*", "\n")
+        .trim();
+
+    if (!hasText(content)) {
+      return "Nao encontrei esse ponto de forma clara na IT selecionada.";
+    }
+
+    var bullets = extractBulletLikeLines(content);
+    if (!bullets.isEmpty()) {
+      var lines = new ArrayList<String>();
+      lines.add(bullets.stream()
+          .map(item -> "- " + toSentence(item))
+          .collect(Collectors.joining("\n")));
+
+      if (shouldAddSectionFollowUp(title)) {
+        lines.add("");
+        lines.add(buildSectionFollowUp(title));
+      }
+      return String.join("\n", lines);
+    }
+
+    return toSentence(content);
+  }
+
+  private List<String> extractBulletLikeLines(String content) {
+    var normalized = content
+        .replace("•", "\n- ")
+        .replace("", "\n- ")
+        .replace("·", "\n- ")
+        .replaceAll("(?<!\\n)-\\s+", "\n- ")
+        .trim();
+
+    var lines = normalized.lines()
+        .map(String::trim)
+        .filter(this::hasText)
+        .map(line -> line.replaceAll("^[-•·]+\\s*", "").trim())
+        .filter(this::hasText)
+        .toList();
+
+    if (lines.size() > 1) {
+      return lines;
+    }
+    return List.of();
+  }
+
+  private boolean shouldAddSectionFollowUp(String title) {
+    var normalizedTitle = this.intentDetector.normalize(title);
+    return normalizedTitle.equals("resultados esperados")
+        || normalizedTitle.equals("referencias")
+        || normalizedTitle.equals("recursos necessarios");
+  }
+
+  private String buildSectionFollowUp(String title) {
+    var normalizedTitle = this.intentDetector.normalize(title);
+    return switch (normalizedTitle) {
+      case "resultados esperados" ->
+          "Para alcancar esses resultados, vale seguir os procedimentos descritos nos proximos passos da IT.";
+      case "referencias" ->
+          "Essas referencias complementam a execucao da atividade e ajudam a manter a operacao alinhada com os demais documentos.";
+      case "recursos necessarios" ->
+          "Esses recursos devem ser considerados junto com os procedimentos e cuidados descritos ao longo da IT.";
+      default -> "";
+    };
+  }
+
+  private boolean hasReliableRevision(String revisao) {
+    var normalized = this.intentDetector.normalize(revisao);
+    return hasText(normalized)
+        && !normalized.equals("00")
+        && !normalized.equals("0")
+        && !normalized.equals("-");
   }
 
   private String toSentence(String value) {

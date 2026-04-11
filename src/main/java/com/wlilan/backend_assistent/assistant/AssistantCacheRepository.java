@@ -15,6 +15,37 @@ public interface AssistantCacheRepository extends JpaRepository<AssistantCacheEn
       String documentVersion,
       String model);
 
+  java.util.List<AssistantCacheEntry> findTop100ByItIdAndSetorAndIntentAndDocumentVersionAndModelOrderByLastAccessedAtDesc(
+      UUID itId,
+      String setor,
+      String intent,
+      String documentVersion,
+      String model);
+
+  Optional<AssistantCacheEntry> findFirstByItIdAndSetorAndIntentAndNormalizedQuestionAndDocumentVersionOrderByLastAccessedAtDesc(
+      UUID itId,
+      String setor,
+      String intent,
+      String normalizedQuestion,
+      String documentVersion);
+
+  Optional<AssistantCacheEntry> findFirstByItIdAndSetorAndIntentAndNormalizedQuestionOrderByUpdatedAtDesc(
+      UUID itId,
+      String setor,
+      String intent,
+      String normalizedQuestion);
+
+  java.util.List<AssistantCacheEntry> findTop100ByItIdAndSetorAndIntentAndDocumentVersionOrderByLastAccessedAtDesc(
+      UUID itId,
+      String setor,
+      String intent,
+      String documentVersion);
+
+  java.util.List<AssistantCacheEntry> findTop100ByItIdAndSetorAndIntentOrderByUpdatedAtDesc(
+      UUID itId,
+      String setor,
+      String intent);
+
   long deleteByItId(UUID itId);
 
   long deleteBySetor(String setor);

@@ -96,6 +96,57 @@ public class AssistantDocumentIndexService {
     return index;
   }
 
+  public DocumentMetadata extractDocumentMetadata(Path filePath, String fallbackDocumento, String fallbackTitulo) {
+    if (filePath == null || !Files.exists(filePath)) {
+      return new DocumentMetadata(
+          firstNonBlank(fallbackDocumento),
+          firstNonBlank(fallbackTitulo, fallbackDocumento),
+          "",
+          "",
+          "",
+          "",
+          "");
+    }
+
+    var fallback = new ItEntity();
+    fallback.setDocumento(firstNonBlank(fallbackDocumento));
+    fallback.setTitulo(firstNonBlank(fallbackTitulo, fallbackDocumento));
+    fallback.setRevisao("");
+    fallback.setStatus("");
+
+    try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
+      var stripper = new PDFTextStripper();
+      stripper.setSortByPosition(true);
+      var metadata = new ExtractedMetadata();
+      var pageLimit = Math.min(document.getNumberOfPages(), 3);
+
+      for (int pageIndex = 0; pageIndex < pageLimit; pageIndex += 1) {
+        stripper.setStartPage(pageIndex + 1);
+        stripper.setEndPage(pageIndex + 1);
+        var pageText = normalizePdfText(stripper.getText(document));
+        metadata.absorb(pageText, fallback);
+      }
+
+      return new DocumentMetadata(
+          firstNonBlank(metadata.documento, fallbackDocumento),
+          firstNonBlank(metadata.titulo, fallbackTitulo, fallbackDocumento),
+          normalizeRevisionValue(metadata.revisao),
+          firstNonBlank(metadata.autor),
+          firstNonBlank(metadata.autorizador),
+          firstNonBlank(metadata.dataImpressao),
+          firstNonBlank(metadata.dataCriacao));
+    } catch (IOException exception) {
+      return new DocumentMetadata(
+          firstNonBlank(fallbackDocumento),
+          firstNonBlank(fallbackTitulo, fallbackDocumento),
+          "",
+          "",
+          "",
+          "",
+          "");
+    }
+  }
+
   public void ensureIndexed(ItEntity it) {
     if (it == null || it.getId() == null || !hasText(it.getFileUrl())) {
       return;
@@ -187,6 +238,19 @@ public class AssistantDocumentIndexService {
     } catch (IOException exception) {
       throw new IllegalArgumentException("Nao foi possivel indexar o PDF da IT selecionada.");
     }
+  }
+
+  private String normalizeRevisionValue(String value) {
+    var normalized = firstNonBlank(value).trim();
+    if (!hasText(normalized)) {
+      return "";
+    }
+
+    var matcher = Pattern.compile("(\\d{1,3})").matcher(normalized);
+    if (matcher.find()) {
+      return matcher.group(1);
+    }
+    return normalized;
   }
 
   private List<ItIndexEntry> parsePageEntries(ItEntity it, ExtractedMetadata metadata, String pageText, int pageNumber) {
@@ -1032,6 +1096,16 @@ public class AssistantDocumentIndexService {
     private static String firstFilled(String current, String next) {
       return current == null || current.isBlank() ? next : current;
     }
+  }
+
+  public record DocumentMetadata(
+      String documento,
+      String titulo,
+      String revisao,
+      String autor,
+      String autorizador,
+      String dataImpressao,
+      String dataCriacao) {
   }
 
   private enum TableKind {

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.wlilan.backend_assistent.Security.SetorSupport;
+import com.wlilan.backend_assistent.exeptions.UserFoundException;
 import com.wlilan.backend_assistent.assistant.AssistantDocumentIndexService;
 import com.wlilan.backend_assistent.it.ItEntity;
 import com.wlilan.backend_assistent.it.it.repository.ItRepository;
@@ -57,14 +58,29 @@ public class UploadItFileUseCase {
   }
 
   public String uploadItPdf(MultipartFile file, String setor, String status) {
+    return uploadItPdf(new UploadItPdfCommand(
+        file,
+        setor,
+        status,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null));
+  }
+
+  public String uploadItPdf(UploadItPdfCommand command) {
+    var file = command.file();
     validateFile(file, ".pdf", "Documento IT");
     try {
-      var targetDirectory = this.itPdfDirectory.resolve(SetorSupport.normalize(setor));
+      var targetDirectory = this.itPdfDirectory.resolve(SetorSupport.normalize(command.setor()));
       Files.createDirectories(targetDirectory);
       String safeName = Paths.get(file.getOriginalFilename()).getFileName().toString();
       Path destination = targetDirectory.resolve(safeName);
       saveWithReplace(file, destination);
-      upsertItRecord(destination, setor, status);
+      upsertItRecord(destination, command);
       return destination.toString();
     } catch (FileSystemException e) {
       throw new IllegalArgumentException(
@@ -92,18 +108,45 @@ public class UploadItFileUseCase {
   }
 
   private ItEntity upsertItRecord(Path filePath, String setor, String status) {
-    var normalizedSetor = SetorSupport.normalize(setor);
-    var normalizedStatus = normalizeStatus(status);
+    return upsertItRecord(filePath, new UploadItPdfCommand(
+        null,
+        setor,
+        status,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null));
+  }
+
+  private ItEntity upsertItRecord(Path filePath, UploadItPdfCommand command) {
+    var normalizedSetor = SetorSupport.normalize(command.setor());
+    var normalizedStatus = normalizeStatus(command.status());
     var fileName = filePath.getFileName().toString();
     var baseName = stripExtension(fileName);
-    var documento = baseName;
-    var titulo = humanizeTitle(baseName);
-    var revisao = extractRevision(baseName);
+    var fallbackDocumento = baseName;
+    var fallbackTitulo = humanizeTitle(baseName);
+    var metadata = this.assistantDocumentIndexService.extractDocumentMetadata(filePath, fallbackDocumento, fallbackTitulo);
+    var documento = firstNonBlank(command.documento(), metadata.documento(), fallbackDocumento);
+    var titulo = firstNonBlank(metadata.titulo(), fallbackTitulo, documento);
+    var revisao = firstNonBlank(command.revisao(), metadata.revisao(), extractRevision(baseName));
     var safeFileUrl = filePath.toString();
 
-    var entity = this.itRepository.findByFileUrlAndSetor(safeFileUrl, normalizedSetor)
-        .or(() -> this.itRepository.findByDocumentoAndRevisaoAndSetor(documento, revisao, normalizedSetor))
-        .orElseGet(ItEntity::new);
+    var entity = resolveTargetEntity(command.existingItId(), normalizedSetor, safeFileUrl, documento, revisao);
+
+    if (entity.getId() != null) {
+      this.itRepository.findByDocumentoAndRevisaoAndSetorAndIdNot(documento, revisao, normalizedSetor, entity.getId())
+          .ifPresent(conflict -> {
+            throw new UserFoundException("Ja existe uma IT cadastrada com este documento e revisao");
+          });
+    } else {
+      this.itRepository.findByDocumentoAndRevisaoAndSetor(documento, revisao, normalizedSetor)
+          .ifPresent(conflict -> {
+            throw new UserFoundException("Ja existe uma IT cadastrada com este documento e revisao");
+          });
+    }
 
     entity.setDocumento(documento);
     entity.setTitulo(titulo);
@@ -111,13 +154,31 @@ public class UploadItFileUseCase {
     entity.setStatus(normalizedStatus);
     entity.setFileUrl(safeFileUrl);
     entity.setSetor(normalizedSetor);
-    entity.setDataPublicacao(LocalDateTime.now());
-    entity.setPaginaAtual(1);
-    entity.setTotalPaginas(1);
-    entity.setPrazoTreinamentoDias(365);
+    entity.setDataPublicacao(resolveDateTime(command.dataPublicacao(), entity.getDataPublicacao(), LocalDateTime.now()));
+    entity.setPaginaAtual(resolvePositiveInt(command.paginaAtual(), entity.getPaginaAtual(), 1));
+    entity.setTotalPaginas(resolvePositiveInt(command.totalPaginas(), entity.getTotalPaginas(), 1));
+    entity.setPrazoTreinamentoDias(resolveNonNegativeInt(command.prazoTreinamentoDias(), entity.getPrazoTreinamentoDias(), 365));
+    validateResolvedMetadata(entity);
     var saved = this.itRepository.save(entity);
     this.assistantDocumentIndexService.ensureIndexed(saved);
     return saved;
+  }
+
+  private ItEntity resolveTargetEntity(
+      java.util.UUID existingItId,
+      String normalizedSetor,
+      String safeFileUrl,
+      String documento,
+      String revisao) {
+    if (existingItId != null) {
+      return this.itRepository.findByIdAndSetor(existingItId, normalizedSetor)
+          .orElseThrow(() -> new IllegalArgumentException("IT selecionada nao encontrada para o setor ativo"));
+    }
+
+    return this.itRepository.findByFileUrlAndSetor(safeFileUrl, normalizedSetor)
+        .or(() -> this.itRepository.findByDocumentoAndRevisaoAndSetor(documento, revisao, normalizedSetor))
+        .or(() -> this.itRepository.findFirstByDocumentoAndSetorOrderByDataPublicacaoDesc(documento, normalizedSetor))
+        .orElseGet(ItEntity::new);
   }
 
   private void saveWithReplace(MultipartFile file, Path destination) throws IOException {
@@ -185,6 +246,75 @@ public class UploadItFileUseCase {
       return "Atualizada";
     }
     return value;
+  }
+
+  private String firstNonBlank(String... values) {
+    for (var value : values) {
+      if (value != null && !value.trim().isBlank()) {
+        return value.trim();
+      }
+    }
+    return "";
+  }
+
+  private LocalDateTime resolveDateTime(LocalDateTime preferred, LocalDateTime current, LocalDateTime fallback) {
+    if (preferred != null) {
+      return preferred;
+    }
+    if (current != null) {
+      return current;
+    }
+    return fallback;
+  }
+
+  private Integer resolvePositiveInt(Integer preferred, Integer current, Integer fallback) {
+    if (preferred != null && preferred > 0) {
+      return preferred;
+    }
+    if (current != null && current > 0) {
+      return current;
+    }
+    return fallback;
+  }
+
+  private Integer resolveNonNegativeInt(Integer preferred, Integer current, Integer fallback) {
+    if (preferred != null && preferred >= 0) {
+      return preferred;
+    }
+    if (current != null && current >= 0) {
+      return current;
+    }
+    return fallback;
+  }
+
+  private void validateResolvedMetadata(ItEntity entity) {
+    if (entity.getDocumento() == null || entity.getDocumento().isBlank()) {
+      throw new IllegalArgumentException("Documento e obrigatorio");
+    }
+
+    if (entity.getRevisao() == null || entity.getRevisao().isBlank()) {
+      throw new IllegalArgumentException("Revisao e obrigatoria");
+    }
+
+    if (entity.getDataPublicacao() == null) {
+      throw new IllegalArgumentException("Data de publicacao e obrigatoria");
+    }
+
+    if (entity.getPaginaAtual() == null || entity.getPaginaAtual() < 1) {
+      throw new IllegalArgumentException("Pagina atual invalida");
+    }
+
+    if (entity.getTotalPaginas() == null || entity.getTotalPaginas() < 1) {
+      throw new IllegalArgumentException("Total de paginas invalido");
+    }
+
+    if (entity.getPaginaAtual() > entity.getTotalPaginas()) {
+      throw new IllegalArgumentException("Pagina atual nao pode ser maior que o total de paginas");
+    }
+
+    if (entity.getPrazoTreinamentoDias() == null || entity.getPrazoTreinamentoDias() < 0) {
+      throw new IllegalArgumentException("Prazo de treinamento invalido");
+    }
   }
 
   private int syncDirectory(Path directory, String setor) {

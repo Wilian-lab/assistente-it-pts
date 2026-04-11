@@ -15,6 +15,8 @@ public interface ItRepository extends JpaRepository<ItEntity, UUID> {
 
   Optional<ItEntity> findByFileUrlAndSetor(String fileUrl, String setor);
 
+  Optional<ItEntity> findFirstByDocumentoAndSetorOrderByDataPublicacaoDesc(String documento, String setor);
+
   java.util.List<ItEntity> findAllBySetorOrderByDocumentoAsc(String setor);
 
   Optional<ItEntity> findByIdAndSetor(UUID id, String setor);

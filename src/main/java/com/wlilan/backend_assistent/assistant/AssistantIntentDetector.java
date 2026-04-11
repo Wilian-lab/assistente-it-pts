@@ -145,7 +145,7 @@ public class AssistantIntentDetector {
 
     var tokens = tokenize(normalized);
     if (tokens.size() <= 2 && tokens.stream().allMatch(token ->
-        Set.of("sim", "isso", "ok", "ta", "certo", "beleza").contains(token))) {
+        Set.of("sim", "isso", "ok", "ta", "certo", "beleza", "certeza").contains(token))) {
       return true;
     }
 

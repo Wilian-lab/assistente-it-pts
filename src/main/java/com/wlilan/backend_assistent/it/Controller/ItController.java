@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.http.HttpStatus;
@@ -31,6 +32,7 @@ import com.wlilan.backend_assistent.it.it.usecases.GetAllItUseCase;
 import com.wlilan.backend_assistent.it.it.usecases.GetItByIdUseCase;
 import com.wlilan.backend_assistent.it.it.usecases.UpdateItUseCase;
 import com.wlilan.backend_assistent.it.it.usecases.UploadItFileUseCase;
+import com.wlilan.backend_assistent.it.it.usecases.UploadItPdfCommand;
 import com.wlilan.backend_assistent.pts.PtsImportService;
 
 import jakarta.validation.Valid;
@@ -138,10 +140,37 @@ public class ItController {
   public ResponseEntity<Map<String, String>> uploadPdf(
       @RequestParam("file") MultipartFile file,
       @RequestParam(value = "status", required = false) String status,
-      @RequestParam("setor") String setor) {
-    var savedPath = this.uploadItFileUseCase.uploadItPdf(file, setor, status);
+      @RequestParam("setor") String setor,
+      @RequestParam(value = "existingItId", required = false) UUID existingItId,
+      @RequestParam(value = "documento", required = false) String documento,
+      @RequestParam(value = "revisao", required = false) String revisao,
+      @RequestParam(value = "dataPublicacao", required = false) LocalDateTime dataPublicacao,
+      @RequestParam(value = "paginaAtual", required = false) Integer paginaAtual,
+      @RequestParam(value = "totalPaginas", required = false) Integer totalPaginas,
+      @RequestParam(value = "prazoTreinamentoDias", required = false) Integer prazoTreinamentoDias) {
+    var savedPath = this.uploadItFileUseCase.uploadItPdf(new UploadItPdfCommand(
+        file,
+        setor,
+        status,
+        existingItId,
+        documento,
+        revisao,
+        dataPublicacao,
+        paginaAtual,
+        totalPaginas,
+        prazoTreinamentoDias));
     return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
         "message", "Arquivo PDF enviado com sucesso",
         "path", savedPath));
+  }
+
+  @PostMapping("/sync")
+  public ResponseEntity<Map<String, Object>> syncFiles(Authentication authentication) {
+    var usuario = (UsuarioEntity) authentication.getPrincipal();
+    var synced = this.uploadItFileUseCase.syncExistingPdfs(usuario.getSetorAtivo());
+    return ResponseEntity.ok(Map.of(
+        "message", "Sincronizacao concluida. " + synced + " IT(s) processada(s) para o setor ativo.",
+        "count", synced,
+        "setor", usuario.getSetorAtivo()));
   }
 }

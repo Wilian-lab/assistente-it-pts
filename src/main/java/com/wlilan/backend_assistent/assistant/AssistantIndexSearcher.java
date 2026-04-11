@@ -26,7 +26,7 @@ public class AssistantIndexSearcher {
       "como", "sobre", "me", "traga", "mostrar", "mostre", "favor", "it", "its",
       "instrucao", "instrucoes", "tecnica", "tecnicas", "operacao", "operar");
   private static final Set<String> LOW_SIGNAL_SECTION_TITLES = Set.of(
-      "referencias", "anexos", "definicoes", "historico de revisao", "registros");
+      "historico de revisao", "registros", "conteudo da pagina");
   private static final Set<String> GENERIC_OPERATION_LABELS = Set.of(
       "monitorar itens", "consideracoes finais", "consideracoes", "resultados esperados");
   private static final Pattern CODE_LIKE_STEP_TITLE = Pattern.compile(
@@ -116,6 +116,20 @@ public class AssistantIndexSearcher {
         .toList();
   }
 
+  public String buildStepOptionTitle(ItIndex index, Integer step, Integer preferredPage, String preferredTitle) {
+    var normalizedPreferredTitle = intentDetector.normalize(firstNonBlank(preferredTitle, ""));
+
+    return stepEntries(index, step).stream()
+        .map(entry -> new java.util.AbstractMap.SimpleEntry<>(entry, extractStepDisplayLabel(entry)))
+        .filter(candidate -> hasText(candidate.getValue()))
+        .max(Comparator
+            .<java.util.AbstractMap.SimpleEntry<ItIndexEntry, String>>comparingInt(candidate ->
+                scoreStepOptionTitleCandidate(candidate.getKey(), candidate.getValue(), preferredPage, normalizedPreferredTitle))
+            .thenComparingInt(candidate -> -candidate.getValue().length()))
+        .map(java.util.Map.Entry::getValue)
+        .orElse("");
+  }
+
   private List<RankedEntry> selectBestResults(
       List<RankedEntry> ranked,
       List<String> keywords,
@@ -124,6 +138,11 @@ public class AssistantIndexSearcher {
     var distinctResults = limitDistinctResults(ranked);
     if (distinctResults.size() <= 1) {
       return distinctResults;
+    }
+
+    var exactStructuredMatch = findExactStructuredTitleMatch(distinctResults, normalizedQuestion);
+    if (exactStructuredMatch != null) {
+      return List.of(exactStructuredMatch);
     }
 
     if (stepHint != null) {
@@ -170,6 +189,27 @@ public class AssistantIndexSearcher {
         .toList();
   }
 
+  private RankedEntry findExactStructuredTitleMatch(List<RankedEntry> candidates, String normalizedQuestion) {
+    if (!hasText(normalizedQuestion)) {
+      return null;
+    }
+
+    return candidates.stream()
+        .filter(candidate -> {
+          var entryType = normalizedEntryType(candidate);
+          return "step".equals(entryType) || "anomaly".equals(entryType);
+        })
+        .filter(candidate -> {
+          var label = intentDetector.normalize(firstNonBlank(candidate.entry().normalizedWhat, candidate.entry().what, candidate.entry().sectionTitle));
+          return hasText(label)
+              && (label.equals(normalizedQuestion)
+                  || label.contains(normalizedQuestion)
+                  || normalizedQuestion.contains(label));
+        })
+        .max(Comparator.comparingDouble(RankedEntry::score))
+        .orElse(null);
+  }
+
   private List<RankedEntry> limitDistinctResults(List<RankedEntry> ranked) {
     var selected = new ArrayList<RankedEntry>();
     var seen = new LinkedHashSet<String>();
@@ -205,6 +245,7 @@ public class AssistantIndexSearcher {
   private RankedEntry rankEntry(ItIndexEntry entry, List<String> keywords,
       Integer stepHint, AssistantIntent intent) {
     var haystack = intentDetector.normalize(firstNonBlank(entry.normalized, buildSearchText(entry)));
+    var sectionTitle = intentDetector.normalize(firstNonBlank(entry.sectionTitle, ""));
     var what = intentDetector.normalize(firstNonBlank(entry.normalizedWhat, entry.what));
     var how = intentDetector.normalize(firstNonBlank(entry.normalizedHow, entry.how));
     var care = intentDetector.normalize(firstNonBlank(entry.normalizedCare, entry.care));
@@ -218,6 +259,10 @@ public class AssistantIndexSearcher {
       boolean hit = false;
       if (containsKeyword(what, kw)) {
         score += 9;
+        hit = true;
+      }
+      if (containsKeyword(sectionTitle, kw)) {
+        score += 10;
         hit = true;
       }
       if (containsKeyword(how, kw)) {
@@ -492,7 +537,7 @@ public class AssistantIndexSearcher {
 
   private boolean isStructuredEntry(ItIndexEntry entry) {
     var entryType = firstNonBlank(entry.entryType, "").toLowerCase();
-    return "step".equals(entryType) || "anomaly".equals(entryType);
+    return "step".equals(entryType) || "anomaly".equals(entryType) || "section".equals(entryType);
   }
 
   private boolean isStepEntry(ItIndexEntry entry) {
@@ -539,5 +584,84 @@ public class AssistantIndexSearcher {
         && (normalizedWhat.equals(normalizedOptionTitle)
             || normalizedWhat.contains(normalizedOptionTitle)
             || normalizedOptionTitle.contains(normalizedWhat));
+  }
+
+  private int scoreStepOptionTitleCandidate(
+      ItIndexEntry entry,
+      String label,
+      Integer preferredPage,
+      String normalizedPreferredTitle) {
+    int score = 0;
+    if (matchesExactPage(entry, preferredPage)) {
+      score += 20;
+    }
+    if (matchesExactTitle(entry, normalizedPreferredTitle)) {
+      score += 12;
+    }
+    if (isMeaningfulStepTitle(entry)) {
+      score += 18;
+    }
+    if (label.length() <= 72) {
+      score += 8;
+    }
+    if (label.length() <= 48) {
+      score += 6;
+    }
+    if (looksLikeNoiseStepTitle(intentDetector.normalize(label))) {
+      score -= 30;
+    }
+    return score;
+  }
+
+  private String extractStepDisplayLabel(ItIndexEntry entry) {
+    var candidates = List.of(
+        firstNonBlank(entry.what, ""),
+        firstNonBlank(entry.sectionTitle, ""),
+        firstNonBlank(entry.how, ""));
+
+    for (var candidate : candidates) {
+      var label = cleanStepDisplayLabel(candidate);
+      if (hasText(label) && !looksLikeNoiseStepTitle(intentDetector.normalize(label))) {
+        return label;
+      }
+    }
+
+    return "";
+  }
+
+  private String cleanStepDisplayLabel(String value) {
+    var cleaned = firstNonBlank(value, "")
+        .replace('\r', '\n')
+        .replaceAll("\\s*\\n\\s*", "\n")
+        .trim();
+    if (!hasText(cleaned)) {
+      return "";
+    }
+
+    var firstLine = cleaned.lines()
+        .map(String::trim)
+        .filter(this::hasText)
+        .findFirst()
+        .orElse("");
+
+    firstLine = firstLine
+        .replaceAll("^\\d+[.)\\-:\\s]+", "")
+        .replaceAll("^passo\\s+\\d+[\\-:\\s]+", "")
+        .replaceAll("\\s+", " ")
+        .trim();
+
+    if (!hasText(firstLine)) {
+      return "";
+    }
+
+    if (firstLine.length() > 84) {
+      firstLine = firstLine.substring(0, 84).trim();
+      var lastSpace = firstLine.lastIndexOf(' ');
+      if (lastSpace > 24) {
+        firstLine = firstLine.substring(0, lastSpace).trim();
+      }
+    }
+
+    return firstLine.replaceAll("[\\s.:;-]+$", "").trim();
   }
 }
