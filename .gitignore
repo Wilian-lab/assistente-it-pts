@@ -46,6 +46,7 @@ backend-run*.log
 .claude/
 
 ### Working notes and local review docs ###
+HELP.md
 backend.md
 REVISAO_CACHE_IT.md
 REVISAO_TECNICA_2026-04-11.md
