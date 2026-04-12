@@ -34,6 +34,7 @@ build/
 
 ### Local secrets ###
 .env.properties
+.env.compose.example
 src/main/resources/application-local.properties
 .env
 *.local
