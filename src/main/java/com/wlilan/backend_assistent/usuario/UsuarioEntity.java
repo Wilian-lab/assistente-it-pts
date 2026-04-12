@@ -1,6 +1,7 @@
 package com.wlilan.backend_assistent.usuario;
 
 import java.time.LocalDate;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -18,6 +19,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.Basic;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -53,12 +55,15 @@ public class UsuarioEntity {
   @Length(min = 8, message = "A senha deve conter no minimo 8 caracteres")
   private String password;
 
+  @JsonIgnore
+  @Column(name = "recovery_code_hash")
+  private String recoveryCodeHash;
+
   @Enumerated(EnumType.STRING)
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private Role role;
 
-  @Enumerated(EnumType.STRING)
-  private Cargo cargo;
+  private String cargo;
 
   @Column(name = "setor")
   private String setor;
@@ -77,7 +82,21 @@ public class UsuarioEntity {
   @Transient
   private String setorAtivo;
 
+  @JsonIgnore
+  @Basic(fetch = FetchType.LAZY)
+  @Column(name = "profile_image_data", columnDefinition = "bytea")
+  private byte[] profileImageData;
+
+  @JsonIgnore
+  @Column(name = "profile_image_content_type")
+  private String profileImageContentType;
+
+  @Transient
+  private String profileImageUrl;
+
   private String lastTrainedIt;
+
+  private String trainingStatus;
 
   private LocalDate lastTrainingDate;
 
@@ -130,5 +149,21 @@ public class UsuarioEntity {
     var codes = this.getSetorCodes();
     this.setores = String.join(",", codes);
     this.setor = codes.stream().findFirst().orElse("");
+  }
+
+  public boolean hasProfileImage() {
+    if (this.profileImageContentType != null && !this.profileImageContentType.isBlank()) {
+      return true;
+    }
+    return this.profileImageData != null && this.profileImageData.length > 0;
+  }
+
+  @JsonIgnore
+  public String getProfileImagePreviewBase64() {
+    if (!hasProfileImage()) {
+      return null;
+    }
+    var contentType = String.valueOf(this.profileImageContentType == null ? "image/png" : this.profileImageContentType).trim();
+    return "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(this.profileImageData);
   }
 }

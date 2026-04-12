@@ -178,8 +178,8 @@ public class AssistantCacheService {
         selectedIt.getDataPublicacao() == null ? "-" : selectedIt.getDataPublicacao().toString()));
   }
 
-  public String buildCacheModelKey(AssistantResponseMode responseMode, AssistantIntent intent, String openRouterModel) {
-    var modelKey = firstNonBlank(openRouterModel, "default");
+  public String buildCacheModelKey(AssistantResponseMode responseMode, AssistantIntent intent) {
+    var modelKey = "gemini-primary";
     return CACHE_NAMESPACE
         + "|" + responseMode.name().toLowerCase(Locale.ROOT)
         + "|" + intent.name().toLowerCase(Locale.ROOT)

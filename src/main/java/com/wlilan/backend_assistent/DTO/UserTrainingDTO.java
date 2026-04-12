@@ -13,6 +13,9 @@ public class UserTrainingDTO {
   @NotBlank(message = "A ultima IT treinada e obrigatoria")
   private String lastTrainedIt;
 
+  @NotBlank(message = "O status do treinamento e obrigatorio")
+  private String trainingStatus;
+
   @NotNull(message = "A data do ultimo treinamento e obrigatoria")
   private LocalDate lastTrainingDate;
 

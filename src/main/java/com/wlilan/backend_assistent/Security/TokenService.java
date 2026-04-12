@@ -2,6 +2,7 @@ package com.wlilan.backend_assistent.Security;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import jakarta.annotation.PostConstruct;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +29,13 @@ public class TokenService {
 
   @Value("${security.token.expires-in-seconds:" + DEFAULT_EXPIRES_IN_SECONDS + "}")
   private long expiresInSeconds;
+
+  @PostConstruct
+  void validateConfiguration() {
+    if (this.secretKey == null || this.secretKey.isBlank()) {
+      throw new IllegalStateException("Configure SECURITY_TOKEN_SECRET antes de iniciar a aplicacao.");
+    }
+  }
 
   public String generateToken(String subject, String role, String setorAtivo) {
     var algorithm = Algorithm.HMAC256(this.secretKey);

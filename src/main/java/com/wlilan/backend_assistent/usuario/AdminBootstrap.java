@@ -10,10 +10,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 500)
 public class AdminBootstrap implements CommandLineRunner {
-
-  private static final long MAX_ADMINS = 5;
 
   private final UsuarioRepository usuarioRepository;
   private final SetorRepository setorRepository;
@@ -28,8 +26,11 @@ public class AdminBootstrap implements CommandLineRunner {
   @Value("${app.admin.password:}")
   private String adminPassword;
 
-  @Value("${app.admin.setores:AGRI_PRODUCTS,MOAGEM}")
+  @Value("${app.admin.setores:GLOBAL}")
   private String adminSetores;
+
+  @Value("${app.admin.recovery-code:}")
+  private String adminRecoveryCode;
 
   public AdminBootstrap(UsuarioRepository usuarioRepository, SetorRepository setorRepository, PasswordEncoder passwordEncoder) {
     this.usuarioRepository = usuarioRepository;
@@ -57,16 +58,15 @@ public class AdminBootstrap implements CommandLineRunner {
     var existingAdmin = this.usuarioRepository.findByEmail(adminEmail);
     if (existingAdmin.isPresent()) {
       var admin = existingAdmin.get();
-      if (admin.getRole() != Role.ADMIN && canCreateOrPromoteAdmin()) {
-        admin.setRole(Role.ADMIN);
+      if (admin.getRole() != Role.SUPER_ADMIN) {
+        admin.setRole(Role.SUPER_ADMIN);
       }
       admin.setSetores(String.join(",", SetorSupport.parseSetores(adminSetores)));
       admin.setSetoresRelacionados(resolveSetores(admin.getSetores()));
+      if (adminRecoveryCode != null && !adminRecoveryCode.isBlank()) {
+        admin.setRecoveryCodeHash(this.passwordEncoder.encode(adminRecoveryCode.strip()));
+      }
       this.usuarioRepository.save(admin);
-      return;
-    }
-
-    if (!canCreateOrPromoteAdmin()) {
       return;
     }
 
@@ -74,15 +74,14 @@ public class AdminBootstrap implements CommandLineRunner {
     admin.setName(adminName);
     admin.setEmail(adminEmail);
     admin.setPassword(this.passwordEncoder.encode(adminPassword));
-    admin.setRole(Role.ADMIN);
+    admin.setRole(Role.SUPER_ADMIN);
     admin.setSetores(String.join(",", SetorSupport.parseSetores(adminSetores)));
     admin.setSetoresRelacionados(resolveSetores(admin.getSetores()));
+    if (adminRecoveryCode != null && !adminRecoveryCode.isBlank()) {
+      admin.setRecoveryCodeHash(this.passwordEncoder.encode(adminRecoveryCode.strip()));
+    }
 
     this.usuarioRepository.save(admin);
-  }
-
-  private boolean canCreateOrPromoteAdmin() {
-    return this.usuarioRepository.countByRole(Role.ADMIN) < MAX_ADMINS;
   }
 
   private static boolean isValidEmail(String email) {

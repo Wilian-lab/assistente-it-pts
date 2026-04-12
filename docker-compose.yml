@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: assistente-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-assistant_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-assistant_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: assistente-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-assistant_db}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${SPRING_JPA_HIBERNATE_DDL_AUTO:-update}
+      SPRING_JPA_SHOW_SQL: ${SPRING_JPA_SHOW_SQL:-false}
+      SECURITY_TOKEN_SECRET: ${SECURITY_TOKEN_SECRET}
+      SECURITY_TOKEN_EXPIRES_IN_SECONDS: ${SECURITY_TOKEN_EXPIRES_IN_SECONDS:-28800}
+      APP_ADMIN_NAME: ${APP_ADMIN_NAME:-Administrador Sistema}
+      APP_ADMIN_EMAIL: ${APP_ADMIN_EMAIL:-}
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-}
+      APP_ADMIN_SETORES: ${APP_ADMIN_SETORES:-GLOBAL}
+      APP_ADMIN_RECOVERY_CODE: ${APP_ADMIN_RECOVERY_CODE:-}
+      APP_SETOR_LINKED_GROUPS: ${APP_SETOR_LINKED_GROUPS:-}
+      APP_PASSWORD_RESET_FRONTEND_URL: ${APP_PASSWORD_RESET_FRONTEND_URL:-http://localhost:5173/reset-password}
+      APP_PASSWORD_RESET_MAIL_FROM: ${APP_PASSWORD_RESET_MAIL_FROM:-}
+      APP_PASSWORD_RESET_MAIL_SUBJECT: ${APP_PASSWORD_RESET_MAIL_SUBJECT:-Recuperacao de senha - Assistente IT}
+      SPRING_MAIL_HOST: ${SPRING_MAIL_HOST:-smtp.gmail.com}
+      SPRING_MAIL_PORT: ${SPRING_MAIL_PORT:-587}
+      SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME:-}
+      SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD:-}
+      SPRING_MAIL_SMTP_AUTH: ${SPRING_MAIL_SMTP_AUTH:-true}
+      SPRING_MAIL_SMTP_STARTTLS_ENABLE: ${SPRING_MAIL_SMTP_STARTTLS_ENABLE:-true}
+      SPRING_MAIL_SMTP_STARTTLS_REQUIRED: ${SPRING_MAIL_SMTP_STARTTLS_REQUIRED:-true}
+      ASSISTANT_GEMINI_API_KEY: ${ASSISTANT_GEMINI_API_KEY:-}
+      APP_SECURITY_ALLOWED_ORIGIN_PATTERNS: ${APP_SECURITY_ALLOWED_ORIGIN_PATTERNS:-http://localhost:5173,http://127.0.0.1:5173}
+      APP_STORAGE_BASE_DIR: /data/assistente_chatbot/pts_chatbot
+      APP_STORAGE_PTS_EXCEL_PATH: /data/assistente_chatbot/pts_chatbot/data/PTS_Agriproducts_02.xlsx
+      APP_STORAGE_IT_DIR: /data/assistente_chatbot/pts_chatbot/docs/ITs
+      ASSISTANT_IT_INDEX_PATH: /data/assistente_chatbot/pts_chatbot/index/it_index.json
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - assistente_storage:/data/assistente_chatbot/pts_chatbot
+
+  frontend:
+    build:
+      context: ../Fron-React
+      dockerfile: ../backend-assistente/docker/frontend.Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+        VITE_ASSISTANT_PROVIDER: ${VITE_ASSISTANT_PROVIDER:-backend}
+    container_name: assistente-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+
+volumes:
+  postgres_data:
+  assistente_storage:

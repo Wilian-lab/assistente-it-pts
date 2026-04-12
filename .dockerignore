@@ -1,0 +1,17 @@
+.git
+.gitignore
+.idea
+.vscode
+target
+.tmp
+.claude
+backend-run*.log
+.env
+.env.properties
+src/main/resources/application-local.properties
+backend.md
+REVISAO_CACHE_IT.md
+REVISAO_TECNICA_2026-04-11.md
+SEGURANCA.md
+aplicarReact.md
+image/aplicarReact

@@ -3,7 +3,7 @@ package com.wlilan.backend_assistent.it.it.usecases;
 import org.springframework.stereotype.Service;
 
 import com.wlilan.backend_assistent.Security.SetorSupport;
-import com.wlilan.backend_assistent.exeptions.UserFoundException;
+import com.wlilan.backend_assistent.it.UserFoundException;
 import com.wlilan.backend_assistent.it.ItEntity;
 import com.wlilan.backend_assistent.it.it.repository.ItRepository;
 

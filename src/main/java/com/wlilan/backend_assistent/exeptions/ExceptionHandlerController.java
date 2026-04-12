@@ -24,8 +24,8 @@ public class ExceptionHandlerController {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(dto);
   }
 
-  @ExceptionHandler(UserFoundException.class)
-  public ResponseEntity<ErrorMessageDTO> handleUserFound(UserFoundException e) {
+  @ExceptionHandler(com.wlilan.backend_assistent.it.UserFoundException.class)
+  public ResponseEntity<ErrorMessageDTO> handleUserFound(com.wlilan.backend_assistent.it.UserFoundException e) {
     var dto = new ErrorMessageDTO(
         e.getMessage(),
         null,
@@ -55,5 +55,38 @@ public class ExceptionHandlerController {
         LocalDateTime.now());
 
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(dto);
+  }
+
+  @ExceptionHandler(InvalidSetorAccessException.class)
+  public ResponseEntity<ErrorMessageDTO> handleInvalidSetorAccess(InvalidSetorAccessException e) {
+    var dto = new ErrorMessageDTO(
+        e.getMessage(),
+        "setor",
+        HttpStatus.FORBIDDEN.value(),
+        LocalDateTime.now());
+
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(dto);
+  }
+
+  @ExceptionHandler(MailDeliveryException.class)
+  public ResponseEntity<ErrorMessageDTO> handleMailDelivery(MailDeliveryException e) {
+    var dto = new ErrorMessageDTO(
+        e.getMessage(),
+        null,
+        HttpStatus.SERVICE_UNAVAILABLE.value(),
+        LocalDateTime.now());
+
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(dto);
+  }
+
+  @ExceptionHandler(TooManyRequestsException.class)
+  public ResponseEntity<ErrorMessageDTO> handleTooManyRequests(TooManyRequestsException e) {
+    var dto = new ErrorMessageDTO(
+        e.getMessage(),
+        null,
+        HttpStatus.TOO_MANY_REQUESTS.value(),
+        LocalDateTime.now());
+
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(dto);
   }
 }

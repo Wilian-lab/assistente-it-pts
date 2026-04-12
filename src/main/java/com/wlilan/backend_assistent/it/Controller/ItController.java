@@ -128,9 +128,12 @@ public class ItController {
   @PostMapping("/upload/pts")
   public ResponseEntity<Map<String, String>> uploadPts(
       @RequestParam("file") MultipartFile file,
-      @RequestParam("setor") String setor) {
-    var savedPath = this.uploadItFileUseCase.uploadPtsExcel(file, setor);
-    this.ptsImportService.importFile(Path.of(savedPath), setor);
+      @RequestParam("setor") String setor,
+      Authentication authentication) {
+    var usuario = (UsuarioEntity) authentication.getPrincipal();
+    var setorAtivo = validateAdminSetor(setor, usuario);
+    var savedPath = this.uploadItFileUseCase.uploadPtsExcel(file, setorAtivo);
+    this.ptsImportService.importFile(Path.of(savedPath), setorAtivo);
     return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
         "message", "Planilha PTS enviada com sucesso",
         "path", savedPath));
@@ -147,10 +150,13 @@ public class ItController {
       @RequestParam(value = "dataPublicacao", required = false) LocalDateTime dataPublicacao,
       @RequestParam(value = "paginaAtual", required = false) Integer paginaAtual,
       @RequestParam(value = "totalPaginas", required = false) Integer totalPaginas,
-      @RequestParam(value = "prazoTreinamentoDias", required = false) Integer prazoTreinamentoDias) {
+      @RequestParam(value = "prazoTreinamentoDias", required = false) Integer prazoTreinamentoDias,
+      Authentication authentication) {
+    var usuario = (UsuarioEntity) authentication.getPrincipal();
+    var setorAtivo = validateAdminSetor(setor, usuario);
     var savedPath = this.uploadItFileUseCase.uploadItPdf(new UploadItPdfCommand(
         file,
-        setor,
+        setorAtivo,
         status,
         existingItId,
         documento,
@@ -172,5 +178,18 @@ public class ItController {
         "message", "Sincronizacao concluida. " + synced + " IT(s) processada(s) para o setor ativo.",
         "count", synced,
         "setor", usuario.getSetorAtivo()));
+  }
+
+  private String validateAdminSetor(String setorInformado, UsuarioEntity usuario) {
+    if (usuario != null && usuario.getRole() == com.wlilan.backend_assistent.usuario.Role.SUPER_ADMIN) {
+      return com.wlilan.backend_assistent.Security.SetorSupport.normalize(setorInformado);
+    }
+    var setorAtivo = usuario == null ? "" : usuario.getSetorAtivo();
+    var normalizedSetorAtivo = com.wlilan.backend_assistent.Security.SetorSupport.normalize(setorAtivo);
+    var normalizedSetorInformado = com.wlilan.backend_assistent.Security.SetorSupport.normalize(setorInformado);
+    if (!normalizedSetorAtivo.equals(normalizedSetorInformado)) {
+      throw new IllegalArgumentException("O setor informado nao corresponde ao setor ativo do administrador.");
+    }
+    return normalizedSetorAtivo;
   }
 }

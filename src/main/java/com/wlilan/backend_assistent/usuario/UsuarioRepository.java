@@ -1,5 +1,6 @@
 package com.wlilan.backend_assistent.usuario;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +17,8 @@ public interface UsuarioRepository extends JpaRepository<UsuarioEntity, UUID> {
 
   long countByRole(Role role);
 
+  List<UsuarioEntity> findAllByOrderByNameAsc();
+
   @Query("""
       select distinct u
       from UsuarioEntity u
@@ -24,6 +27,15 @@ public interface UsuarioRepository extends JpaRepository<UsuarioEntity, UUID> {
       order by u.name asc
       """)
   List<UsuarioEntity> findAllBySetorCodigoOrderByNameAsc(@Param("setor") String setor);
+
+  @Query("""
+      select distinct u
+      from UsuarioEntity u
+      join u.setoresRelacionados s
+      where s.codigo in :setores
+      order by u.name asc
+      """)
+  List<UsuarioEntity> findAllBySetorCodigoInOrderByNameAsc(@Param("setores") Collection<String> setores);
 
   @Query("""
       select distinct u

@@ -18,7 +18,9 @@ import lombok.Data;
     name = "assistant_document_block",
     indexes = {
         @Index(name = "idx_assistant_document_block_it", columnList = "itId"),
-        @Index(name = "idx_assistant_document_block_lookup", columnList = "itId,page,step,entryType")
+        @Index(name = "idx_assistant_document_block_lookup", columnList = "itId,page,step,entryType"),
+        @Index(name = "idx_assistant_document_block_setor", columnList = "setor"),
+        @Index(name = "idx_assistant_document_block_setor_documento", columnList = "setor,documento")
     })
 public class AssistantDocumentBlockEntity {
 
@@ -31,6 +33,9 @@ public class AssistantDocumentBlockEntity {
 
   @Column(nullable = false, length = 255)
   private String documento;
+
+  @Column(nullable = false, length = 120)
+  private String setor;
 
   @Column(length = 255)
   private String titulo;

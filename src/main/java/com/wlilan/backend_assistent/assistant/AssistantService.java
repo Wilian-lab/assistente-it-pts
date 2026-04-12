@@ -27,7 +27,6 @@ public class AssistantService {
   private final AssistantIndexSearcher assistantIndexSearcher;
   private final AssistantResponseFormatter assistantResponseFormatter;
   private final AssistantGeminiClient assistantGeminiClient;
-  private final AssistantOpenRouterClient assistantOpenRouterClient;
   private final AssistantCacheService assistantCacheService;
 
   public AssistantService(
@@ -36,22 +35,16 @@ public class AssistantService {
       AssistantIndexSearcher assistantIndexSearcher,
       AssistantResponseFormatter assistantResponseFormatter,
       AssistantGeminiClient assistantGeminiClient,
-      AssistantOpenRouterClient assistantOpenRouterClient,
       AssistantCacheService assistantCacheService) {
     this.getItByIdUseCase = getItByIdUseCase;
     this.assistantIntentDetector = assistantIntentDetector;
     this.assistantIndexSearcher = assistantIndexSearcher;
     this.assistantResponseFormatter = assistantResponseFormatter;
     this.assistantGeminiClient = assistantGeminiClient;
-    this.assistantOpenRouterClient = assistantOpenRouterClient;
     this.assistantCacheService = assistantCacheService;
   }
 
   public AssistantAskResponse ask(AssistantAskRequest request, UsuarioEntity usuario) {
-    return ask(request, usuario, null, false);
-  }
-
-  public AssistantAskResponse ask(AssistantAskRequest request, UsuarioEntity usuario, String modelOverride, boolean disableCache) {
     try {
       var setorAtivo = firstNonBlank(request.setorAtivo(), usuario.getSetorAtivo(), usuario.getSetor());
       var selectedIt = this.getItByIdUseCase.execute(parseUuid(request.itId()), setorAtivo);
@@ -61,14 +54,12 @@ public class AssistantService {
       var responseMode = resolveResponseMode(intent);
       var normalizedQuestion = buildNormalizedQuestion(request, intent);
       var documentVersion = this.assistantCacheService.resolveDocumentVersion(selectedIt);
-      var effectiveModel = firstNonBlank(modelOverride, this.assistantOpenRouterClient.getPrimaryModel());
       var cacheModelKey = this.assistantCacheService.buildCacheModelKey(
           responseMode,
-          intent,
-          effectiveModel);
+          intent);
       var useDatabaseCache = shouldUseDatabaseCache(responseMode, request);
 
-      if (!disableCache && useDatabaseCache) {
+      if (useDatabaseCache) {
         var cachedResponse = this.assistantCacheService.findCachedResponse(
             selectedIt,
             setorAtivo,
@@ -83,12 +74,12 @@ public class AssistantService {
 
       AssistantAskResponse response;
       if (responseMode == AssistantResponseMode.CONVERSATION) {
-        response = buildConversationResponse(selectedIt, request, intent, modelOverride);
+        response = buildConversationResponse(selectedIt, request, intent);
       } else {
-        response = buildDocumentGroundedResponse(selectedIt, request, intent, modelOverride);
+        response = buildDocumentGroundedResponse(selectedIt, request, intent);
       }
 
-      if (!disableCache && useDatabaseCache && shouldCacheResponse(response)) {
+      if (useDatabaseCache && shouldCacheResponse(response)) {
         this.assistantCacheService.saveResponse(
             selectedIt,
             setorAtivo,
@@ -272,8 +263,7 @@ public class AssistantService {
   private AssistantAskResponse buildConversationResponse(
       com.wlilan.backend_assistent.it.ItEntity selectedIt,
       AssistantAskRequest request,
-      AssistantIntent intent,
-      String modelOverride) {
+      AssistantIntent intent) {
     var messages = this.assistantResponseFormatter.buildConversationMessages(selectedIt, request, intent);
     try {
       var answer = this.assistantGeminiClient.chat(messages, 0.7d);
@@ -284,33 +274,20 @@ public class AssistantService {
           answer,
           this.assistantGeminiClient.getPrimaryModel());
     } catch (IllegalArgumentException exception) {
-      var geminiError = exception.getMessage();
-      var effectiveModel = firstNonBlank(modelOverride, this.assistantOpenRouterClient.getPrimaryModel());
-      try {
-        var answer = this.assistantOpenRouterClient.chat(messages, 0.7d, modelOverride, modelOverride == null || modelOverride.isBlank());
-        return this.assistantResponseFormatter.buildConversationResponse(
-            selectedIt,
-            request,
-            intent,
-            answer,
-            effectiveModel);
-      } catch (IllegalArgumentException openRouterException) {
-        return this.assistantResponseFormatter.buildConversationUnavailableResponse(
-            selectedIt,
-            request,
-            intent,
-            firstNonBlank(openRouterException.getMessage(), geminiError),
-            firstNonBlank(effectiveModel, this.assistantGeminiClient.getPrimaryModel()));
-      }
+      return this.assistantResponseFormatter.buildConversationUnavailableResponse(
+          selectedIt,
+          request,
+          intent,
+          exception.getMessage(),
+          this.assistantGeminiClient.getPrimaryModel());
     }
   }
 
   private AssistantAskResponse buildDocumentGroundedResponse(
       com.wlilan.backend_assistent.it.ItEntity selectedIt,
       AssistantAskRequest request,
-      AssistantIntent intent,
-      String modelOverride) {
-    var effectiveModel = firstNonBlank(modelOverride, this.assistantGeminiClient.getPrimaryModel());
+      AssistantIntent intent) {
+    var effectiveModel = this.assistantGeminiClient.getPrimaryModel();
     var index = this.assistantIndexSearcher.loadIndex(selectedIt);
     var documentInfoResponse = buildDocumentInfoResponseIfApplicable(selectedIt, request, index);
     if (documentInfoResponse != null) {
@@ -347,7 +324,7 @@ public class AssistantService {
           request,
           matches);
       var answer = this.assistantGeminiClient.chat(messages, 0.35d);
-      return this.assistantResponseFormatter.buildOpenRouterResponse(
+      return this.assistantResponseFormatter.buildDocumentGroundedResponse(
           selectedIt,
           request,
           matches,
@@ -355,28 +332,12 @@ public class AssistantService {
           answer,
           this.assistantGeminiClient.getPrimaryModel());
     } catch (IllegalArgumentException geminiException) {
-      var openRouterModel = firstNonBlank(modelOverride, this.assistantOpenRouterClient.getPrimaryModel());
-      try {
-        var messages = this.assistantResponseFormatter.buildDocumentGroundedMessages(
-            selectedIt,
-            request,
-            matches);
-        var answer = this.assistantOpenRouterClient.chat(messages, 0.35d, modelOverride, modelOverride == null || modelOverride.isBlank());
-        return this.assistantResponseFormatter.buildOpenRouterResponse(
-            selectedIt,
-            request,
-            matches,
-            responseIntent,
-            answer,
-            openRouterModel);
-      } catch (IllegalArgumentException openRouterException) {
       return this.assistantResponseFormatter.buildStructuredResponse(
           selectedIt,
           request,
           matches,
           index,
           responseIntent);
-      }
     }
   }
 

@@ -8,11 +8,11 @@
 		<version>4.0.5</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
-	<groupId>com.wilian</groupId>
-	<artifactId>gestao_vagas</artifactId>
+	<groupId>com.wlilan</groupId>
+	<artifactId>backend-assistente</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>gestao_vagas</name>
-	<description/>
+	<name>backend-assistente</name>
+	<description>Backend do sistema de controle de ITs e PTS</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -66,6 +66,11 @@
 
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-mail</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-devtools</artifactId>
 			<scope>runtime</scope>
 			<optional>true</optional>
@@ -74,6 +79,12 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 

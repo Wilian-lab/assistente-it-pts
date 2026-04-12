@@ -2,8 +2,10 @@ package com.wlilan.backend_assistent.Security;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Arrays;
 import jakarta.servlet.DispatcherType;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -26,9 +28,16 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
   private final SecurityFilter securityFilter;
+  private final List<String> allowedOriginPatterns;
 
-  public SecurityConfig(SecurityFilter securityFilter) {
+  public SecurityConfig(
+      SecurityFilter securityFilter,
+      @Value("${app.security.allowed-origin-patterns:http://localhost:*,http://127.0.0.1:*}") String allowedOriginPatternsRaw) {
     this.securityFilter = securityFilter;
+    this.allowedOriginPatterns = Arrays.stream(String.valueOf(allowedOriginPatternsRaw == null ? "" : allowedOriginPatternsRaw).split(","))
+        .map(String::trim)
+        .filter(value -> !value.isBlank())
+        .toList();
   }
 
   @Bean
@@ -72,19 +81,25 @@ public class SecurityConfig {
         .authorizeHttpRequests(authorize -> authorize
             .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
             .requestMatchers("/error").permitAll()
-            .requestMatchers(HttpMethod.POST, "/usuario").permitAll()
+            .requestMatchers(HttpMethod.GET, "/auth/setores").permitAll()
             .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
-            .requestMatchers(HttpMethod.POST, "/auth/register").permitAll()
-            .requestMatchers(HttpMethod.GET, "/it/**").hasAnyRole("ADMIN", "USER")
-            .requestMatchers(HttpMethod.POST, "/it/**").hasRole("ADMIN")
-            .requestMatchers(HttpMethod.PUT, "/it/**").hasRole("ADMIN")
-            .requestMatchers(HttpMethod.DELETE, "/it/**").hasRole("ADMIN")
-            .requestMatchers(HttpMethod.GET, "/api/admin/users/**").hasRole("ADMIN")
-            .requestMatchers(HttpMethod.POST, "/api/admin/users/**").hasRole("ADMIN")
-            .requestMatchers(HttpMethod.PUT, "/api/admin/users/**").hasRole("ADMIN")
-            .requestMatchers(HttpMethod.DELETE, "/api/admin/users/**").hasRole("ADMIN")
-            .requestMatchers(HttpMethod.GET, "/usuario/me").hasAnyRole("ADMIN", "USER")
-            .requestMatchers(HttpMethod.GET, "/usuario/**").hasRole("ADMIN")
+            .requestMatchers(HttpMethod.POST, "/auth/forgot-password").permitAll()
+            .requestMatchers(HttpMethod.POST, "/auth/reset-password").permitAll()
+            .requestMatchers(HttpMethod.POST, "/auth/reset-password/recovery-code").permitAll()
+            .requestMatchers(HttpMethod.GET, "/it/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
+            .requestMatchers(HttpMethod.POST, "/it/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+            .requestMatchers(HttpMethod.PUT, "/it/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+            .requestMatchers(HttpMethod.DELETE, "/it/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+            .requestMatchers(HttpMethod.GET, "/api/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+            .requestMatchers(HttpMethod.POST, "/api/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+            .requestMatchers(HttpMethod.PUT, "/api/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+            .requestMatchers(HttpMethod.DELETE, "/api/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+            .requestMatchers(HttpMethod.GET, "/usuario/me").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
+            .requestMatchers(HttpMethod.GET, "/usuario/me/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
+            .requestMatchers(HttpMethod.PUT, "/usuario/me/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
+            .requestMatchers(HttpMethod.POST, "/usuario/me/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
+            .requestMatchers(HttpMethod.DELETE, "/usuario/me/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
+            .requestMatchers(HttpMethod.GET, "/usuario/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
             .anyRequest().authenticated())
         .addFilterBefore(this.securityFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -99,7 +114,9 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     var configuration = new CorsConfiguration();
-    configuration.setAllowedOriginPatterns(List.of("http://localhost:*", "http://127.0.0.1:*"));
+    configuration.setAllowedOriginPatterns(this.allowedOriginPatterns.isEmpty()
+        ? List.of("http://localhost:*", "http://127.0.0.1:*")
+        : this.allowedOriginPatterns);
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("*"));
     configuration.setAllowCredentials(true);

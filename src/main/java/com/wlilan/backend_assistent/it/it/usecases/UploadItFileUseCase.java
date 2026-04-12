@@ -15,9 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.wlilan.backend_assistent.Security.SetorSupport;
-import com.wlilan.backend_assistent.exeptions.UserFoundException;
 import com.wlilan.backend_assistent.assistant.AssistantDocumentIndexService;
 import com.wlilan.backend_assistent.it.ItEntity;
+import com.wlilan.backend_assistent.it.UserFoundException;
 import com.wlilan.backend_assistent.it.it.repository.ItRepository;
 
 @Service
@@ -211,6 +211,45 @@ public class UploadItFileUseCase {
     if (name == null || !name.toLowerCase(Locale.ROOT).endsWith(expectedExtension)) {
       throw new IllegalArgumentException(label + " deve ser do tipo " + expectedExtension);
     }
+
+    var contentType = String.valueOf(file.getContentType() == null ? "" : file.getContentType()).trim().toLowerCase(Locale.ROOT);
+    if (".pdf".equals(expectedExtension) && !(contentType.isBlank() || contentType.equals("application/pdf"))) {
+      throw new IllegalArgumentException(label + " deve ser um PDF valido.");
+    }
+    if (".xlsx".equals(expectedExtension)
+        && !(contentType.isBlank()
+            || contentType.equals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            || contentType.equals("application/octet-stream"))) {
+      throw new IllegalArgumentException(label + " deve ser uma planilha XLSX valida.");
+    }
+
+    try (var in = file.getInputStream()) {
+      var header = in.readNBytes(8);
+      if (".pdf".equals(expectedExtension) && !looksLikePdf(header)) {
+        throw new IllegalArgumentException(label + " deve conter uma assinatura PDF valida.");
+      }
+      if (".xlsx".equals(expectedExtension) && !looksLikeZip(header)) {
+        throw new IllegalArgumentException(label + " deve conter uma assinatura XLSX valida.");
+      }
+    } catch (IOException e) {
+      throw new IllegalArgumentException("Falha ao validar " + label.toLowerCase(Locale.ROOT) + ".");
+    }
+  }
+
+  private boolean looksLikePdf(byte[] header) {
+    return header.length >= 4
+        && header[0] == '%'
+        && header[1] == 'P'
+        && header[2] == 'D'
+        && header[3] == 'F';
+  }
+
+  private boolean looksLikeZip(byte[] header) {
+    return header.length >= 4
+        && header[0] == 'P'
+        && header[1] == 'K'
+        && (header[2] == 3 || header[2] == 5 || header[2] == 7)
+        && (header[3] == 4 || header[3] == 6 || header[3] == 8);
   }
 
   private Path buildSectorFilePath(Path basePath, String setor, String fileName) {

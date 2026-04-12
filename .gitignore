@@ -31,14 +31,28 @@ build/
 
 ### VS Code ###
 .vscode/
-backend.md
 
 ### Local secrets ###
 .env.properties
 src/main/resources/application-local.properties
+.env
+*.local
+*.secret
 
 ### Runtime artifacts ###
 backend-run*.log
 .tmp/
 .mvn-classpath
 .claude/
+
+### Working notes and local review docs ###
+backend.md
+REVISAO_CACHE_IT.md
+REVISAO_TECNICA_2026-04-11.md
+SEGURANCA.md
+aplicarReact.md
+.hintrc
+.md
+
+### Local scratch assets ###
+image/aplicarReact/

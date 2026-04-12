@@ -7,6 +7,7 @@ import com.wlilan.backend_assistent.DTO.AuthDTO;
 import com.wlilan.backend_assistent.DTO.TokenResponseDTO;
 import com.wlilan.backend_assistent.Security.SetorSupport;
 import com.wlilan.backend_assistent.exeptions.InvalidCredentialsException;
+import com.wlilan.backend_assistent.exeptions.InvalidSetorAccessException;
 import com.wlilan.backend_assistent.Security.TokenService;
 import com.wlilan.backend_assistent.usuario.Role;
 import com.wlilan.backend_assistent.usuario.UsuarioRepository;
@@ -37,11 +38,11 @@ public class AuthUseCase {
     }
 
     var setorAtivo = SetorSupport.normalize(authDTO.setor());
-    if (!SetorSupport.userHasSetor(usuario.getSetores(), setorAtivo)) {
-      throw new InvalidCredentialsException();
+    var role = usuario.getRole() != null ? usuario.getRole() : Role.USER;
+    if (role != Role.SUPER_ADMIN && !SetorSupport.userHasSetor(usuario.getSetores(), setorAtivo)) {
+      throw new InvalidSetorAccessException();
     }
 
-    var role = usuario.getRole() != null ? usuario.getRole() : Role.USER;
     usuario.setSetorAtivo(setorAtivo);
     var token = this.tokenService.generateToken(usuario.getEmail(), role.name(), setorAtivo);
     return new TokenResponseDTO(token, this.tokenService.getExpiresInSeconds(), usuario);

@@ -1,8 +1,10 @@
 package com.wlilan.backend_assistent.Security;
 
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public final class SetorSupport {
 
@@ -10,7 +12,15 @@ public final class SetorSupport {
   }
 
   public static String normalize(String value) {
-    return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    var normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT)
+        .replace('-', '_')
+        .replace(' ', '_');
+
+    return switch (normalized) {
+      case "SECAGEM" -> "AGRI_PRODUCTS";
+      case "AGRIPRODUCTS" -> "AGRI_PRODUCTS";
+      default -> normalized;
+    };
   }
 
   public static List<String> parseSetores(String raw) {
@@ -32,5 +42,9 @@ public final class SetorSupport {
     }
 
     return parseSetores(setor).contains(wanted);
+  }
+
+  public static Set<String> parseGroupedSetores(String raw) {
+    return new LinkedHashSet<>(parseSetores(raw));
   }
 }

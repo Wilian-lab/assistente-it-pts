@@ -10,6 +10,8 @@ public interface AssistantDocumentBlockRepository extends JpaRepository<Assistan
 
   List<AssistantDocumentBlockEntity> findByItIdOrderByPageAscStepAsc(UUID itId);
 
+  List<AssistantDocumentBlockEntity> findBySetorOrderByDocumentoAscPageAscStepAsc(String setor);
+
   Optional<AssistantDocumentBlockEntity> findFirstByItIdOrderByUpdatedAtDesc(UUID itId);
 
   long deleteByItId(UUID itId);

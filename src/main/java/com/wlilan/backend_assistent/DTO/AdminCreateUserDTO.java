@@ -1,11 +1,9 @@
 package com.wlilan.backend_assistent.DTO;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
-import com.wlilan.backend_assistent.usuario.Cargo;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
@@ -24,10 +22,12 @@ public class AdminCreateUserDTO {
   @NotBlank(message = "Role e obrigatoria")
   private String role;
 
-  @NotNull(message = "Cargo e obrigatorio")
-  private Cargo cargo;
+  @NotBlank(message = "Cargo e obrigatorio")
+  private String cargo;
 
   @NotBlank(message = "Setor e obrigatorio")
   @JsonAlias({ "setor", "setores" })
   private String setores;
+
+  private String recoveryCode;
 }

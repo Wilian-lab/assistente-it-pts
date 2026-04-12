@@ -91,7 +91,7 @@ public class AssistantResponseFormatter {
         .build();
   }
 
-  public AssistantAskResponse buildOpenRouterResponse(
+  public AssistantAskResponse buildDocumentGroundedResponse(
       ItEntity selectedIt,
       AssistantAskRequest request,
       List<RankedEntry> matches,
@@ -101,7 +101,7 @@ public class AssistantResponseFormatter {
     var primaryEntry = matches.get(0).entry();
     return AssistantAskResponse.builder()
         .message(answer.trim())
-        .sourceType("openrouter_it")
+        .sourceType("gemini_it")
         .documento(resolveDocumentCode(selectedIt, request, matches))
         .titulo(firstNonBlank(selectedIt.getTitulo(), request.documentTitle(), selectedIt.getDocumento()))
         .revisao(selectedIt.getRevisao())
@@ -110,7 +110,7 @@ public class AssistantResponseFormatter {
         .warnings(List.of())
         .evidence(buildEvidence(matches))
         .metadata(Map.of(
-            "mode", "openrouter_indexed_context",
+            "mode", "gemini_indexed_context",
             "results", matches.size(),
             "model", model,
             "intent", intent.name().toLowerCase(Locale.ROOT),
@@ -128,7 +128,7 @@ public class AssistantResponseFormatter {
       String model) {
     return AssistantAskResponse.builder()
         .message(firstNonBlank(answer))
-        .sourceType("openrouter_it")
+        .sourceType("gemini_it")
         .documento(firstNonBlank(selectedIt.getDocumento(), request.documentCode()))
         .titulo(firstNonBlank(selectedIt.getTitulo(), request.documentTitle(), selectedIt.getDocumento()))
         .revisao(selectedIt.getRevisao())
@@ -137,7 +137,7 @@ public class AssistantResponseFormatter {
         .warnings(List.of("Nao encontrei um trecho especifico na IT para essa pergunta."))
         .evidence(List.of())
         .metadata(Map.of(
-            "mode", "openrouter_indexed_context",
+            "mode", "gemini_indexed_context",
             "results", 0,
             "model", model,
             "intent", intent.name().toLowerCase(Locale.ROOT),
@@ -227,7 +227,7 @@ public class AssistantResponseFormatter {
       String model) {
     return AssistantAskResponse.builder()
         .message(firstNonBlank(answer))
-        .sourceType("openrouter_conversation")
+        .sourceType("gemini_conversation")
         .documento(firstNonBlank(selectedIt.getDocumento(), request.documentCode()))
         .titulo(firstNonBlank(selectedIt.getTitulo(), request.documentTitle(), selectedIt.getDocumento()))
         .revisao(selectedIt.getRevisao())

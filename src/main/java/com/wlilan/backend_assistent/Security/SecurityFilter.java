@@ -40,29 +40,25 @@ public class SecurityFilter extends OncePerRequestFilter {
       HttpServletResponse response,
       FilterChain filterChain) throws ServletException, IOException {
 
-    log.info("SecurityFilter request method={} uri={}", request.getMethod(), request.getRequestURI());
     var token = recoverToken(request);
     if (token != null) {
-      log.info("Authorization header found. Token prefix={}...", token.substring(0, Math.min(12, token.length())));
       var validation = this.tokenService.validate(token);
 
       if (validation.isValid()) {
-        log.info("JWT validated. Subject={}", validation.subject());
         var setorAtivo = SetorSupport.normalize(validation.setorAtivo());
         var usuarioOpt = this.usuarioRepository.findByEmail(validation.subject());
         if (usuarioOpt.isPresent()) {
           var usuario = usuarioOpt.get();
-              usuario.setSetorAtivo(setorAtivo);
-              var role = usuario.getRole() != null ? usuario.getRole() : Role.USER;
-              log.info("User found for subject={}. role={} setor={}", validation.subject(), role, setorAtivo);
-              var authorities = List.of(
-                  new SimpleGrantedAuthority("ROLE_" + role.name()));
-              var authentication = new UsernamePasswordAuthenticationToken(
-                  usuario,
-                  null,
-                  authorities);
+          usuario.setSetorAtivo(setorAtivo);
+          var role = usuario.getRole() != null ? usuario.getRole() : Role.USER;
+          var authorities = List.of(
+              new SimpleGrantedAuthority("ROLE_" + role.name()));
+          var authentication = new UsernamePasswordAuthenticationToken(
+              usuario,
+              null,
+              authorities);
 
-              SecurityContextHolder.getContext().setAuthentication(authentication);
+          SecurityContextHolder.getContext().setAuthentication(authentication);
         } else {
           log.warn("JWT validated but no user found with email={}", validation.subject());
         }
@@ -72,8 +68,6 @@ public class SecurityFilter extends OncePerRequestFilter {
         }
         log.warn("JWT validation returned null subject for request {}", request.getRequestURI());
       }
-    } else {
-      log.warn("No Bearer token found for request {}", request.getRequestURI());
     }
 
     filterChain.doFilter(request, response);

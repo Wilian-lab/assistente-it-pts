@@ -1,4 +1,4 @@
-package com.wlilan.backend_assistent.exeptions;
+package com.wlilan.backend_assistent.it;
 
 public class UserFoundException extends RuntimeException {
   public UserFoundException(String message) {
