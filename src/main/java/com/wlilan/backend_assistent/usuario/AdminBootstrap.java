@@ -58,9 +58,11 @@ public class AdminBootstrap implements CommandLineRunner {
     var existingAdmin = this.usuarioRepository.findByEmail(adminEmail);
     if (existingAdmin.isPresent()) {
       var admin = existingAdmin.get();
+      admin.setName(adminName);
       if (admin.getRole() != Role.SUPER_ADMIN) {
         admin.setRole(Role.SUPER_ADMIN);
       }
+      admin.setPassword(this.passwordEncoder.encode(adminPassword));
       admin.setSetores(String.join(",", SetorSupport.parseSetores(adminSetores)));
       admin.setSetoresRelacionados(resolveSetores(admin.getSetores()));
       if (adminRecoveryCode != null && !adminRecoveryCode.isBlank()) {

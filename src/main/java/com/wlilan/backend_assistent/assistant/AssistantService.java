@@ -7,6 +7,8 @@ import java.util.Locale;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.wlilan.backend_assistent.assistant.dto.AssistantAskRequest;
@@ -21,6 +23,7 @@ import com.wlilan.backend_assistent.usuario.UsuarioEntity;
 
 @Service
 public class AssistantService {
+  private static final Logger LOGGER = LoggerFactory.getLogger(AssistantService.class);
 
   private final GetItByIdUseCase getItByIdUseCase;
   private final AssistantIntentDetector assistantIntentDetector;
@@ -88,12 +91,16 @@ public class AssistantService {
             documentVersion,
             cacheModelKey,
             request,
-            response.message());
+            response);
       }
       return response;
     } catch (IllegalArgumentException exception) {
       throw exception;
     } catch (Exception exception) {
+      LOGGER.error("Falha ao responder consulta do assistente para itId={} mensagem={}",
+          request != null ? request.itId() : null,
+          request != null ? request.message() : null,
+          exception);
       return AssistantAskResponse.builder()
           .message("Nao encontrei esse ponto com seguranca na IT selecionada. Se quiser, eu posso tentar outra busca com mais termos ou voce pode escolher um passo da IT.")
           .sourceType("assistant_safe_fallback")
@@ -101,6 +108,8 @@ public class AssistantService {
           .evidence(java.util.List.of())
           .metadata(java.util.Map.of(
               "mode", "safe_fallback",
+              "provider", "local_index",
+              "freshResponse", false,
               "cacheHit", false))
           .build();
     }
@@ -132,6 +141,7 @@ public class AssistantService {
         .sampleQuestions(buildSampleQuestions(selectedIt, opcoes, anomalyCount))
         .metadata(java.util.Map.of(
             "mode", "selected_it_context",
+            "provider", "local_index",
             "chatReady", true,
             "sourcePolicy", "selected_it_only"))
         .build();
@@ -309,13 +319,26 @@ public class AssistantService {
     }
 
     if (shouldUseFastGroundedResponse(request, matches)) {
-      return this.assistantResponseFormatter.buildFastDocumentGroundedResponse(
-          selectedIt,
-          request,
-          matches,
-          index,
-          responseIntent,
-          "local_grounded_fastpath");
+      try {
+        return this.assistantResponseFormatter.buildFastDocumentGroundedResponse(
+            selectedIt,
+            request,
+            matches,
+            index,
+            responseIntent,
+            "local_grounded_fastpath");
+      } catch (Exception exception) {
+        LOGGER.warn("Falha no fastpath local do assistente para itId={} mensagem={}. Usando fallback seguro.",
+            selectedIt.getId(),
+            request.message(),
+            exception);
+        return this.assistantResponseFormatter.buildSafeLocalGroundedResponse(
+            selectedIt,
+            request,
+            matches,
+            responseIntent,
+            "local_grounded_safe_fallback");
+      }
     }
 
     try {
@@ -332,12 +355,25 @@ public class AssistantService {
           answer,
           this.assistantGeminiClient.getPrimaryModel());
     } catch (IllegalArgumentException geminiException) {
-      return this.assistantResponseFormatter.buildStructuredResponse(
-          selectedIt,
-          request,
-          matches,
-          index,
-          responseIntent);
+      try {
+        return this.assistantResponseFormatter.buildStructuredResponse(
+            selectedIt,
+            request,
+            matches,
+            index,
+            responseIntent);
+      } catch (Exception exception) {
+        LOGGER.warn("Falha no fallback estruturado do assistente para itId={} mensagem={}. Usando resposta local segura.",
+            selectedIt.getId(),
+            request.message(),
+            exception);
+        return this.assistantResponseFormatter.buildSafeLocalGroundedResponse(
+            selectedIt,
+            request,
+            matches,
+            responseIntent,
+            "structured_safe_fallback");
+      }
     }
   }
 

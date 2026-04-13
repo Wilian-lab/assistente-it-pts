@@ -42,8 +42,9 @@ public class AssistantSetorViewRunner implements CommandLineRunner {
 
   private void createAssistantDocumentBlockView(String codigo) {
     var viewName = DOCUMENT_VIEW_PREFIX + toSqlSlug(codigo);
+    this.jdbcTemplate.execute("drop view if exists " + viewName);
     var sql = """
-        create or replace view %s as
+        create view %s as
         select
           id,
           it_id,
@@ -79,8 +80,9 @@ public class AssistantSetorViewRunner implements CommandLineRunner {
 
   private void createAssistantCacheView(String codigo) {
     var viewName = CACHE_VIEW_PREFIX + toSqlSlug(codigo);
+    this.jdbcTemplate.execute("drop view if exists " + viewName);
     var sql = """
-        create or replace view %s as
+        create view %s as
         select
           id,
           it_id,
@@ -93,6 +95,8 @@ public class AssistantSetorViewRunner implements CommandLineRunner {
           titulo,
           revisao,
           response_message,
+          original_source_type,
+          original_provider,
           created_at,
           updated_at,
           last_accessed_at,

@@ -3,6 +3,7 @@ package com.wlilan.backend_assistent.usuario.useCases;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
@@ -10,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -137,5 +139,49 @@ class ServiceUseCaseTest {
     var created = this.serviceUseCase.executeAdminCreate(dto, actor);
 
     assertEquals("AGRI_PRODUCTS", created.user().getSetor());
+  }
+
+  @Test
+  void shouldAllowSuperAdminToAssignMultipleSectorsToAdmin() {
+    var actor = new UsuarioEntity();
+    actor.setRole(Role.SUPER_ADMIN);
+
+    var target = new UsuarioEntity();
+    target.setId(UUID.randomUUID());
+    target.setRole(Role.ADMIN);
+    target.setSetores("MOAGEM");
+
+    var moagem = new SetorEntity();
+    moagem.setCodigo("MOAGEM");
+    var agri = new SetorEntity();
+    agri.setCodigo("AGRI_PRODUCTS");
+    when(this.usuarioRepository.findById(target.getId())).thenReturn(Optional.of(target));
+    when(this.setorRepository.findByCodigo("MOAGEM")).thenReturn(Optional.of(moagem));
+    when(this.setorRepository.findByCodigo("AGRI_PRODUCTS")).thenReturn(Optional.of(agri));
+    when(this.usuarioRepository.save(org.mockito.ArgumentMatchers.any(UsuarioEntity.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    var updated = this.serviceUseCase.updateUserSetores(target.getId(), "MOAGEM, SECAGEM", actor);
+
+    assertEquals("MOAGEM,AGRI_PRODUCTS", updated.getSetores());
+    assertTrue(updated.getSetorCodes().contains("MOAGEM"));
+    assertTrue(updated.getSetorCodes().contains("AGRI_PRODUCTS"));
+  }
+
+  @Test
+  void shouldBlockMultipleSectorsForRegularUser() {
+    var actor = new UsuarioEntity();
+    actor.setRole(Role.SUPER_ADMIN);
+
+    var target = new UsuarioEntity();
+    target.setId(UUID.randomUUID());
+    target.setRole(Role.USER);
+
+    when(this.usuarioRepository.findById(target.getId())).thenReturn(Optional.of(target));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> this.serviceUseCase.updateUserSetores(target.getId(), "MOAGEM, SECAGEM", actor));
+    verify(this.usuarioRepository, never()).save(org.mockito.ArgumentMatchers.any(UsuarioEntity.class));
   }
 }

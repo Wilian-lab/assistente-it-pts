@@ -196,9 +196,45 @@ public class ServiceUseCase {
     return this.usuarioRepository.save(user);
   }
 
+  @Transactional
+  public UsuarioEntity updateUserSetores(UUID userId, String setoresRaw, UsuarioEntity actor) {
+    if (!isSuperAdmin(actor)) {
+      throw new IllegalArgumentException("Somente o super administrador pode atualizar setores de usuarios.");
+    }
+
+    var user = this.usuarioRepository.findById(userId)
+        .orElseThrow(() -> new IllegalArgumentException("Usuario nao encontrado"));
+
+    if (user.getRole() == Role.SUPER_ADMIN) {
+      throw new IllegalArgumentException("Nao e permitido alterar os setores do super administrador por este fluxo.");
+    }
+
+    var requestedSetores = new LinkedHashSet<>(SetorSupport.parseSetores(setoresRaw));
+    if (requestedSetores.isEmpty()) {
+      throw new IllegalArgumentException("Informe ao menos um setor.");
+    }
+
+    if (user.getRole() != Role.ADMIN && requestedSetores.size() > 1) {
+      throw new IllegalArgumentException("Usuario comum pode pertencer a apenas um setor.");
+    }
+
+    user.setSetoresRelacionados(
+        requestedSetores.stream()
+            .map(this::findOrCreateSetor)
+            .toList());
+    user.syncLegacySetorFields();
+
+    var normalizedSetorAtivo = SetorSupport.normalize(user.getSetorAtivo());
+    if (!normalizedSetorAtivo.isBlank() && !user.getSetorCodes().contains(normalizedSetorAtivo)) {
+      user.setSetorAtivo(user.getSetor());
+    }
+
+    return this.usuarioRepository.save(user);
+  }
+
   public List<SetorEntity> getVisibleSetores(UsuarioEntity actor) {
     if (isSuperAdmin(actor)) {
-      return this.setorRepository.findDistinctAssignedSetores();
+      return this.setorRepository.findAllByOrderByCodigoAsc();
     }
     var allowedSetores = expandAllowedSetores(actor.getSetorCodes());
     if (allowedSetores.isEmpty()) {
@@ -213,6 +249,19 @@ public class ServiceUseCase {
     return this.setorRepository.findAllByCodigoIn(allowedSetores).stream()
         .sorted(java.util.Comparator.comparing(SetorEntity::getCodigo))
         .toList();
+  }
+
+  public boolean actorCanAccessSetor(UsuarioEntity actor, String setor) {
+    var normalizedSetor = SetorSupport.normalize(setor);
+    if (normalizedSetor.isBlank() || actor == null) {
+      return false;
+    }
+
+    if (isSuperAdmin(actor)) {
+      return this.setorRepository.findByCodigo(normalizedSetor).isPresent();
+    }
+
+    return expandAllowedSetores(actor.getSetorCodes()).contains(normalizedSetor);
   }
 
   public List<SetorOptionDTO> getLoginSetores() {

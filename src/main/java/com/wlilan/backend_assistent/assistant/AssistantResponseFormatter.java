@@ -85,6 +85,8 @@ public class AssistantResponseFormatter {
         .metadata(Map.of(
             "mode", "structured_step_response",
             "results", matches.size(),
+            "provider", "local_index",
+            "freshResponse", true,
             "intent", intent.name().toLowerCase(Locale.ROOT),
             "primaryPage", primaryEntry.page == null ? "-" : primaryEntry.page,
             "cacheHit", false))
@@ -112,6 +114,8 @@ public class AssistantResponseFormatter {
         .metadata(Map.of(
             "mode", "gemini_indexed_context",
             "results", matches.size(),
+            "provider", "gemini",
+            "freshResponse", true,
             "model", model,
             "intent", intent.name().toLowerCase(Locale.ROOT),
             "responseMode", AssistantResponseMode.DOCUMENT_GROUNDED.name().toLowerCase(Locale.ROOT),
@@ -139,6 +143,8 @@ public class AssistantResponseFormatter {
         .metadata(Map.of(
             "mode", "gemini_indexed_context",
             "results", 0,
+            "provider", "gemini",
+            "freshResponse", true,
             "model", model,
             "intent", intent.name().toLowerCase(Locale.ROOT),
             "responseMode", AssistantResponseMode.DOCUMENT_GROUNDED.name().toLowerCase(Locale.ROOT),
@@ -174,7 +180,43 @@ public class AssistantResponseFormatter {
         .metadata(Map.of(
             "mode", "document_grounded_fastpath",
             "results", matches.size(),
+            "provider", "local_index",
+            "freshResponse", true,
             "model", model,
+            "intent", intent.name().toLowerCase(Locale.ROOT),
+            "responseMode", AssistantResponseMode.DOCUMENT_GROUNDED.name().toLowerCase(Locale.ROOT),
+            "cacheHit", false))
+        .build();
+  }
+
+  public AssistantAskResponse buildSafeLocalGroundedResponse(
+      ItEntity selectedIt,
+      AssistantAskRequest request,
+      List<RankedEntry> matches,
+      AssistantIntent intent,
+      String mode) {
+    var entry = matches.get(0).entry();
+    var answer = switch (intent) {
+      case ANOMALY -> buildFastAnomalyAnswer(entry);
+      case OPERATION -> buildMinimalGroundedAnswer(selectedIt, request, entry, matches);
+      default -> buildFastGeneralAnswer(entry);
+    };
+
+    return AssistantAskResponse.builder()
+        .message(answer)
+        .sourceType("it_grounded_safe")
+        .documento(resolveDocumentCode(selectedIt, request, matches))
+        .titulo(firstNonBlank(selectedIt.getTitulo(), request.documentTitle(), selectedIt.getDocumento()))
+        .revisao(selectedIt.getRevisao())
+        .downloadUrl("/it/" + selectedIt.getId() + "/file")
+        .previewUrl("/it/" + selectedIt.getId() + "/file")
+        .warnings(List.of("A resposta foi montada pelo modo local de seguranca para preservar a confiabilidade da consulta."))
+        .evidence(buildEvidence(matches))
+        .metadata(Map.of(
+            "mode", firstNonBlank(mode, "document_grounded_safe"),
+            "results", matches.size(),
+            "provider", "local_index",
+            "freshResponse", true,
             "intent", intent.name().toLowerCase(Locale.ROOT),
             "responseMode", AssistantResponseMode.DOCUMENT_GROUNDED.name().toLowerCase(Locale.ROOT),
             "cacheHit", false))
@@ -214,6 +256,8 @@ public class AssistantResponseFormatter {
         .evidence(List.of())
         .metadata(Map.of(
             "mode", firstNonBlank(mode, "document_info_local"),
+            "provider", "local_index",
+            "freshResponse", true,
             "responseMode", AssistantResponseMode.DOCUMENT_GROUNDED.name().toLowerCase(Locale.ROOT),
             "cacheHit", false))
         .build();
@@ -237,6 +281,8 @@ public class AssistantResponseFormatter {
         .evidence(List.of())
         .metadata(Map.of(
             "mode", "conversation",
+            "provider", "gemini",
+            "freshResponse", true,
             "model", model,
             "intent", intent.name().toLowerCase(Locale.ROOT),
             "responseMode", AssistantResponseMode.CONVERSATION.name().toLowerCase(Locale.ROOT),
@@ -262,6 +308,8 @@ public class AssistantResponseFormatter {
         .evidence(List.of())
         .metadata(Map.of(
             "mode", "conversation_unavailable",
+            "provider", "gemini",
+            "freshResponse", false,
             "model", model,
             "intent", intent.name().toLowerCase(Locale.ROOT),
             "responseMode", AssistantResponseMode.CONVERSATION.name().toLowerCase(Locale.ROOT),
@@ -453,6 +501,7 @@ public class AssistantResponseFormatter {
     for (int i = 0; i < matches.size(); i += 1) {
       var entry = matches.get(i).entry();
       var enrichment = enrichOperationEntry(entry, index);
+      var careText = resolvePreferredCareText(entry, enrichment);
       lines.add("**Bloco " + (i + 1) + "**");
       lines.add("Passo: " + (entry.step == null ? "-" : entry.step));
       lines.add("Pagina: " + (entry.page == null ? "-" : entry.page));
@@ -463,7 +512,7 @@ public class AssistantResponseFormatter {
       lines.add(formatBulletBlock(enrichment.how(), "Nao identificado."));
       lines.add("");
       lines.add("**Cuidados especiais**");
-      lines.add(formatBulletBlock(enrichment.care(), "Nao identificado claramente no trecho estruturado desta pagina."));
+      lines.add(formatBulletBlock(careText, "Nao identificado claramente no trecho estruturado desta pagina."));
       lines.add("");
     }
     return String.join("\n", lines);
@@ -562,7 +611,7 @@ public class AssistantResponseFormatter {
         firstNonBlank(enrichment.how(), entry.how, entry.actionText),
         "Nao consegui localizar um passo a passo claro nesse trecho da IT."));
 
-    var careText = firstNonBlank(enrichment.care(), entry.care);
+    var careText = resolvePreferredCareText(entry, enrichment);
     if (hasText(careText)) {
       lines.add("");
       lines.add("**Cuidados especiais**");
@@ -602,6 +651,57 @@ public class AssistantResponseFormatter {
       return "O que monitorar";
     }
     return "Como fazer";
+  }
+
+  private String resolvePreferredCareText(ItIndexEntry entry, OperationEnrichment enrichment) {
+    var rawCare = cleanDisplayCareText(entry.care);
+    var enrichedCare = cleanDisplayCareText(enrichment.care());
+
+    if (hasText(rawCare) && !hasText(enrichedCare)) {
+      return rawCare;
+    }
+
+    if (hasText(rawCare) && hasText(enrichedCare)) {
+      var normalizedRaw = this.intentDetector.normalize(rawCare);
+      var normalizedEnriched = this.intentDetector.normalize(enrichedCare);
+      if (normalizedRaw.contains(normalizedEnriched) && rawCare.length() > enrichedCare.length()) {
+        return rawCare;
+      }
+    }
+
+    return firstNonBlank(enrichedCare, rawCare);
+  }
+
+  private String cleanDisplayCareText(String value) {
+    var text = firstNonBlank(value, "").trim();
+    if (!hasText(text)) {
+      return "";
+    }
+
+    var normalized = this.intentDetector.normalize(text);
+    var anchors = List.of(
+        "no inicio",
+        "sempre",
+        "evitar",
+        "cuidar",
+        "atencao",
+        "seguranca",
+        "bloqueio",
+        "operador");
+
+    int bestIndex = Integer.MAX_VALUE;
+    for (var anchor : anchors) {
+      var index = normalized.indexOf(anchor);
+      if (index > 0 && index < bestIndex) {
+        bestIndex = index;
+      }
+    }
+
+    if (bestIndex > 0 && bestIndex != Integer.MAX_VALUE) {
+      text = text.substring(Math.min(bestIndex, text.length())).trim();
+    }
+
+    return repairBrokenHowText(text);
   }
 
   private String extractOperationContext(ItIndexEntry entry, OperationEnrichment enrichment) {
@@ -911,8 +1011,13 @@ public class AssistantResponseFormatter {
       return ResponseSection.WHAT;
     }
     if (normalized.contains("fonte")
-        || normalized.contains("pagina")
-        || normalized.contains("passo")) {
+        || normalized.contains("em qual pagina")
+        || normalized.contains("qual pagina")
+        || normalized.contains("em que pagina")
+        || normalized.contains("em qual passo")
+        || normalized.contains("qual passo")
+        || normalized.contains("onde encontro")
+        || normalized.contains("onde esta")) {
       return ResponseSection.SOURCE;
     }
     if (normalized.contains("possiveis causas")
@@ -1129,7 +1234,7 @@ public class AssistantResponseFormatter {
     var how = cleanList(appendWithSpace(extractOperationLead(rawWhat, cleanedWhat), repairedColumns.how()));
     var care = cleanCare(repairedColumns.care());
     var leadingHowContinuation = extractLeadingHowContinuation(care);
-    if (hasText(leadingHowContinuation)) {
+    if (hasText(leadingHowContinuation) && looksLikeHowContinuationFragment(leadingHowContinuation)) {
       how = appendWithSpace(how, leadingHowContinuation);
       care = care.substring(Math.min(leadingHowContinuation.length(), care.length())).trim();
     }
@@ -1167,15 +1272,48 @@ public class AssistantResponseFormatter {
     }
 
     var firstCareSegmentIndex = findFirstCareCueIndex(care);
-    if (firstCareSegmentIndex > 0 && endsWithIncompleteStructure(how)) {
+    if (firstCareSegmentIndex > 0
+        && firstCareSegmentIndex != Integer.MAX_VALUE
+        && endsWithIncompleteStructure(how)) {
       var continuation = care.substring(0, firstCareSegmentIndex).trim();
-      if (hasText(continuation)) {
+      if (hasText(continuation) && looksLikeHowContinuationFragment(continuation)) {
         how = appendWithSpace(how, continuation);
         care = care.substring(firstCareSegmentIndex).trim();
       }
     }
 
     return new OperationText(how, care);
+  }
+
+  private boolean looksLikeHowContinuationFragment(String value) {
+    var text = firstNonBlank(value, "").trim();
+    if (!hasText(text)) {
+      return false;
+    }
+
+    if (text.length() > 120) {
+      return false;
+    }
+
+    if (text.contains(". ")
+        || text.contains("! ")
+        || text.contains("? ")
+        || text.contains("\n")) {
+      return false;
+    }
+
+    var normalized = this.intentDetector.normalize(text);
+    return Character.isLowerCase(text.charAt(0))
+        || normalized.startsWith("de ")
+        || normalized.startsWith("do ")
+        || normalized.startsWith("da ")
+        || normalized.startsWith("para ")
+        || normalized.startsWith("com ")
+        || normalized.startsWith("no ")
+        || normalized.startsWith("na ")
+        || normalized.startsWith("retirando ")
+        || normalized.startsWith("utilizando ")
+        || hasOpenStructure(text);
   }
 
   private String cleanOperationWhat(String what) {
@@ -1344,6 +1482,10 @@ public class AssistantResponseFormatter {
 
     var prefix = cleaned.substring(0, firstCareIndex).trim();
     if (!hasText(prefix)) {
+      return "";
+    }
+
+    if (!looksLikeHowContinuationFragment(prefix)) {
       return "";
     }
 

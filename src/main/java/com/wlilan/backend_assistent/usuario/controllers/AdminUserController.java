@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wlilan.backend_assistent.DTO.AdminCreateUserDTO;
 import com.wlilan.backend_assistent.DTO.AdminCreateUserResponseDTO;
 import com.wlilan.backend_assistent.DTO.GeneratedRecoveryCodeResponseDTO;
+import com.wlilan.backend_assistent.DTO.UpdateUserSetoresDTO;
 import com.wlilan.backend_assistent.DTO.UserTrainingDTO;
 import com.wlilan.backend_assistent.usuario.UsuarioEntity;
 import com.wlilan.backend_assistent.usuario.useCases.ServiceUseCase;
@@ -64,6 +65,16 @@ public class AdminUserController {
       Authentication authentication) {
     var usuario = (UsuarioEntity) authentication.getPrincipal();
     var updated = this.serviceUseCase.updateTraining(id, trainingDTO, usuario.getSetorAtivo());
+    return ResponseEntity.ok(updated);
+  }
+
+  @PutMapping("/{id}/setores")
+  public ResponseEntity<UsuarioEntity> updateSetores(
+      @PathVariable UUID id,
+      @Valid @RequestBody UpdateUserSetoresDTO request,
+      Authentication authentication) {
+    var usuario = (UsuarioEntity) authentication.getPrincipal();
+    var updated = this.serviceUseCase.updateUserSetores(id, request.setores(), usuario);
     return ResponseEntity.ok(updated);
   }
 

@@ -4,7 +4,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.Locale;
+import java.util.stream.Stream;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.http.HttpStatus;
@@ -23,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.beans.factory.annotation.Value;
 
 import com.wlilan.backend_assistent.it.ItEntity;
 import com.wlilan.backend_assistent.usuario.UsuarioEntity;
@@ -30,6 +34,7 @@ import com.wlilan.backend_assistent.it.it.usecases.CreateItUseCase;
 import com.wlilan.backend_assistent.it.it.usecases.DeleteItUseCase;
 import com.wlilan.backend_assistent.it.it.usecases.GetAllItUseCase;
 import com.wlilan.backend_assistent.it.it.usecases.GetItByIdUseCase;
+import com.wlilan.backend_assistent.it.it.usecases.UpdateItUseCase;
 import com.wlilan.backend_assistent.it.it.usecases.UpdateItUseCase;
 import com.wlilan.backend_assistent.it.it.usecases.UploadItFileUseCase;
 import com.wlilan.backend_assistent.it.it.usecases.UploadItPdfCommand;
@@ -48,6 +53,7 @@ public class ItController {
   private final UpdateItUseCase updateItUseCase;
   private final UploadItFileUseCase uploadItFileUseCase;
   private final PtsImportService ptsImportService;
+  private final Path itStorageDirectory;
 
   public ItController(
       CreateItUseCase createItUseCase,
@@ -56,7 +62,8 @@ public class ItController {
       DeleteItUseCase deleteItUseCase,
       UpdateItUseCase updateItUseCase,
       UploadItFileUseCase uploadItFileUseCase,
-      PtsImportService ptsImportService) {
+      PtsImportService ptsImportService,
+      @Value("${app.storage.it-dir}") String itStorageDirectory) {
     this.createItUseCase = createItUseCase;
     this.getAllItUseCase = getAllItUseCase;
     this.getItByIdUseCase = getItByIdUseCase;
@@ -64,6 +71,7 @@ public class ItController {
     this.updateItUseCase = updateItUseCase;
     this.uploadItFileUseCase = uploadItFileUseCase;
     this.ptsImportService = ptsImportService;
+    this.itStorageDirectory = Paths.get(itStorageDirectory);
   }
 
   @PostMapping
@@ -92,18 +100,19 @@ public class ItController {
     var usuario = (UsuarioEntity) authentication.getPrincipal();
     var it = this.getItByIdUseCase.execute(id, usuario.getSetorAtivo());
 
-    if (it.getFileUrl() == null || it.getFileUrl().isBlank()) {
+    var resolvedPath = resolveExistingItFile(it);
+    if (resolvedPath == null) {
       return ResponseEntity.notFound().build();
     }
 
-    var path = Path.of(it.getFileUrl());
-    if (!Files.exists(path)) {
-      return ResponseEntity.notFound().build();
+    if (!resolvedPath.toString().equals(String.valueOf(it.getFileUrl()))) {
+      it.setFileUrl(resolvedPath.toString());
+      this.updateItUseCase.execute(it.getId(), it, usuario.getSetorAtivo());
     }
 
-    var resource = new FileSystemResource(path);
-    var contentType = Files.probeContentType(path);
-    var fileName = path.getFileName().toString();
+    var resource = new FileSystemResource(resolvedPath);
+    var contentType = Files.probeContentType(resolvedPath);
+    var fileName = resolvedPath.getFileName().toString();
 
     return ResponseEntity.ok()
         .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + fileName + "\"")
@@ -191,5 +200,55 @@ public class ItController {
       throw new IllegalArgumentException("O setor informado nao corresponde ao setor ativo do administrador.");
     }
     return normalizedSetorAtivo;
+  }
+
+  private Path resolveExistingItFile(ItEntity it) {
+    var rawFileUrl = String.valueOf(it.getFileUrl() == null ? "" : it.getFileUrl()).trim();
+    if (rawFileUrl.isBlank()) {
+      return null;
+    }
+
+    var directPath = toSafePath(rawFileUrl);
+    if (directPath != null && Files.exists(directPath)) {
+      return directPath;
+    }
+
+    var fileName = extractFileName(rawFileUrl);
+    if (fileName.isBlank()) {
+      return null;
+    }
+
+    var setorDirectory = this.itStorageDirectory.resolve(
+        com.wlilan.backend_assistent.Security.SetorSupport.normalize(it.getSetor()));
+    var directSectorFile = setorDirectory.resolve(fileName);
+    if (Files.exists(directSectorFile)) {
+      return directSectorFile;
+    }
+
+    try (Stream<Path> paths = Files.walk(this.itStorageDirectory, 4)) {
+      return paths
+          .filter(Files::isRegularFile)
+          .filter(path -> path.getFileName().toString().equalsIgnoreCase(fileName))
+          .findFirst()
+          .orElse(null);
+    } catch (Exception exception) {
+      return null;
+    }
+  }
+
+  private Path toSafePath(String rawFileUrl) {
+    try {
+      var normalized = rawFileUrl.replace('\\', '/');
+      return Paths.get(normalized);
+    } catch (Exception exception) {
+      return null;
+    }
+  }
+
+  private String extractFileName(String rawFileUrl) {
+    var normalized = rawFileUrl.replace('\\', '/').trim();
+    var lastSlash = normalized.lastIndexOf('/');
+    var fileName = lastSlash >= 0 ? normalized.substring(lastSlash + 1) : normalized;
+    return fileName.trim();
   }
 }

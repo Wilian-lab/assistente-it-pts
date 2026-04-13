@@ -1,90 +1,258 @@
-# Backend Assistente IT
+# Backend Assistente IT PTS
 
-Backend Spring Boot do sistema de controle de ITs e PTS, com foco em treinamento operacional, governanca por setor e consulta assistida de documentos.
+API Spring Boot do sistema de controle de ITs, PTS, treinamento operacional e assistente documental por setor.
 
-## Visao geral
+Este backend foi projetado para ambientes industriais com segregacao por setor, controle de acesso por perfil e consultas guiadas por documento, sem misturar contexto entre Moagem, Refinaria, Agri-Products e demais setores cadastrados.
 
-Este backend atende o frontend do sistema e centraliza:
+## O que o sistema faz
 
-- autenticacao e autorizacao por perfil
-- controle de setores e segregacao de acesso
-- cadastro de usuarios por `SUPER_ADMIN` e `ADMIN`
-- controle de ITs, PDFs e sincronizacao de documentos
-- controle de treinamento por usuario
-- recuperacao de senha por link e por codigo administrativo
-- consulta assistida de ITs com contexto por setor
-- importacao e consulta de arquivos PTS
+- autentica usuarios com `SUPER_ADMIN`, `ADMIN` e `USER`
+- controla acesso por setor ativo
+- cadastra usuarios, admins e setores
+- registra treinamento por usuario e proximo vencimento
+- faz upload, revisao e leitura protegida de ITs em PDF
+- importa e consulta arquivos PTS
+- entrega respostas do assistente com base na IT selecionada
+- reutiliza respostas por cache dentro do mesmo setor e da mesma IT
+- envia recuperacao de senha e codigo de recuperacao por email
 
 ## Perfis de acesso
 
-- `SUPER_ADMIN`: administra setores, admins e usuarios de todos os setores
-- `ADMIN`: administra usuarios e treinamentos dentro dos setores permitidos
-- `USER`: consulta ITs, treinamentos e assistente dentro do setor ativo
-
-## Regras principais
-
-- todo acesso a IT, cache e indexacao do assistente respeita o `setorAtivo`
-- o assistente consulta apenas o contexto da IT selecionada no setor do usuario
-- treinamentos, notificacoes e status operacionais ficam vinculados ao usuario
-- recuperacao de senha pode acontecer por token de e-mail ou por codigo gerado pelo admin
+- `SUPER_ADMIN`
+  - navega entre setores sem logout
+  - cria setores
+  - cria admins e usuarios
+  - ajusta os setores permitidos de cada admin
+- `ADMIN`
+  - gerencia usuarios e treinamentos dos setores aos quais foi vinculado
+  - faz upload e revisao de ITs do setor ativo
+- `USER`
+  - consulta ITs, treinamento e assistente no setor ativo
 
 ## Arquitetura resumida
 
-- `usuario/`: autenticacao, perfis, setores, perfil do usuario e recuperacao de acesso
-- `it/`: CRUD de ITs, upload de PDF, sincronizacao e leitura protegida de arquivos
-- `assistant/`: indexacao, cache, busca estruturada e resposta guiada por IT
-- `pts/`: importacao e consulta de arquivos PTS por setor
-- `Security/`: JWT, filtros e regras de autorizacao
-- `DTO/`: contratos da API
+- `src/main/java/com/wlilan/backend_assistent/usuario`
+  - autenticacao, perfis, setores, bootstrap admin, perfil e recuperacao de acesso
+- `src/main/java/com/wlilan/backend_assistent/it`
+  - CRUD de ITs, upload de PDF e leitura protegida de documentos
+- `src/main/java/com/wlilan/backend_assistent/assistant`
+  - indexacao, cache, busca contextual e respostas do assistente
+- `src/main/java/com/wlilan/backend_assistent/pts`
+  - importacao e consulta de dados PTS
+- `src/main/java/com/wlilan/backend_assistent/Security`
+  - JWT, filtros, rate limit e regras de acesso
 
-## Integracao com o frontend
+## Stack tecnica
 
-O frontend consome esta API para:
+- Java 17
+- Spring Boot 4
+- Spring Security com JWT
+- Spring Data JPA
+- PostgreSQL
+- Docker e Docker Compose
+- Gemini API para enriquecimento das respostas do assistente
 
-- autenticar usuarios e obter token JWT
-- listar ITs do setor ativo
-- consultar documentos protegidos
-- cadastrar usuarios e atualizar treinamentos
-- abrir o assistente contextual da IT selecionada
-- atualizar perfil, foto e senha do usuario logado
+## Como clonar
+
+### Backend
+
+```bash
+git clone https://github.com/Wilian-lab/assistente-it-pts.git
+cd assistente-it-pts
+```
+
+### Frontend para subir o full stack no Compose
+
+O `docker-compose.yml` deste repositório sobe o frontend apenas no profile `fullstack`, e espera o frontend em uma pasta irma chamada `Fron-React`.
+
+Estrutura esperada:
+
+```text
+<workspace>\
+  assistente-it-pts\
+  Fron-React\
+```
+
+Exemplo:
+
+```bash
+git clone https://github.com/Wilian-lab/assistente-it-pts.git
+git clone <repo-do-frontend> Fron-React
+```
+
+Se voce quiser subir apenas backend + banco, o repositório atual sozinho ja basta.
+
+## Variaveis de ambiente
+
+Este projeto usa um arquivo `.env` local para o Docker Compose e `application.properties` com placeholders seguros.
+
+Arquivos sensiveis nao devem ir para o Git:
+
+- `.env`
+- `.env.properties`
+- `src/main/resources/application-local.properties`
+
+### Variaveis minimas para Docker
+
+```env
+POSTGRES_DB=assistant_db
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=uma-senha-forte
+POSTGRES_PORT=5433
+
+BACKEND_PORT=8081
+FRONTEND_PORT=5173
+
+SECURITY_TOKEN_SECRET=uma-chave-jwt-forte-e-longa
+SECURITY_TOKEN_EXPIRES_IN_SECONDS=28800
+
+APP_ADMIN_NAME=Administrador Sistema
+APP_ADMIN_EMAIL=admin.master@empresa.com
+APP_ADMIN_PASSWORD=senha-inicial-do-super-admin
+APP_ADMIN_SETORES=GLOBAL
+APP_ADMIN_RECOVERY_CODE=codigo-inicial-forte
+
+APP_PASSWORD_RESET_FRONTEND_URL=http://localhost:5173/reset-password
+APP_PASSWORD_RESET_MAIL_FROM=suporte.assistente@empresa.com
+APP_PASSWORD_RESET_MAIL_SUBJECT=Recuperacao de senha - Assistente IT
+
+SPRING_MAIL_HOST=smtp.gmail.com
+SPRING_MAIL_PORT=587
+SPRING_MAIL_USERNAME=suporte.assistente@empresa.com
+SPRING_MAIL_PASSWORD=senha-ou-app-password
+SPRING_MAIL_SMTP_AUTH=true
+SPRING_MAIL_SMTP_STARTTLS_ENABLE=true
+SPRING_MAIL_SMTP_STARTTLS_REQUIRED=true
+
+ASSISTANT_GEMINI_API_KEY=sua-chave-gemini
+
+APP_SECURITY_ALLOWED_ORIGIN_PATTERNS=http://localhost:5173,http://127.0.0.1:5173
+VITE_API_BASE_URL=http://localhost:8081
+VITE_ASSISTANT_PROVIDER=backend
+```
+
+### Observacao sobre email
+
+Em producao, estes campos devem apontar para a conta oficial que envia os emails do sistema:
+
+- `SPRING_MAIL_USERNAME`
+- `SPRING_MAIL_PASSWORD`
+- `APP_PASSWORD_RESET_MAIL_FROM`
+
+Os destinatarios nao ficam no `.env`. Eles vem do email cadastrado de cada usuario no banco.
+
+## Como rodar com Docker
+
+### Subir backend + PostgreSQL
+
+Na raiz do backend:
+
+```bash
+docker compose up --build -d
+```
+
+Servicos:
+
+- backend: `http://localhost:8081`
+- postgres Docker: `localhost:5433`
+
+### Subir full stack com frontend
+
+Se o frontend estiver na pasta irma `../Fron-React`:
+
+```bash
+docker compose --profile fullstack up --build -d
+```
+
+Servicos:
+
+- frontend: `http://localhost:5173`
+- backend: `http://localhost:8081`
+- postgres Docker: `localhost:5433`
+
+### Parar os containers
+
+```bash
+docker compose down
+```
+
+### Ver logs
+
+```bash
+docker compose logs -f backend
+docker compose logs -f postgres
+docker compose logs -f frontend
+```
+
+## Como rodar sem Docker
+
+### Requisitos
+
+- Java 17
+- PostgreSQL
+- Maven Wrapper
+
+### Backend
+
+```bash
+mvnw.cmd spring-boot:run
+```
+
+### Testes
+
+```bash
+mvnw.cmd test
+```
+
+## Fluxo operacional do sistema
+
+1. O `SUPER_ADMIN` entra no sistema.
+2. Cria setores, se necessario.
+3. Cria admins e define os setores que cada admin pode gerenciar.
+4. Cada admin cria usuarios do proprio contexto.
+5. Usuarios e admins consultam ITs e treinamentos dentro do setor ativo.
+6. O assistente responde com base na IT selecionada e no setor ativo.
 
 ## Endpoints principais
 
-### Autenticacao e recuperacao
+### Autenticacao e setor ativo
 
 - `POST /auth/login`
+- `POST /auth/switch-sector`
 - `GET /auth/setores`
-- `POST /auth/forgot-password`
-- `POST /auth/reset-password`
-- `POST /auth/reset-password/recovery-code`
 
 ### Perfil do usuario autenticado
 
+- `GET /usuario/me`
 - `PUT /usuario/me/profile`
 - `PUT /usuario/me/password`
 - `POST /usuario/me/avatar`
 - `GET /usuario/me/avatar`
 - `DELETE /usuario/me/avatar`
 
-### Administracao de usuarios
+### Recuperacao de acesso
+
+- `POST /auth/forgot-password`
+- `POST /auth/reset-password`
+- `POST /auth/reset-password/recovery-code`
+
+### Administracao
 
 - `GET /api/admin/users`
 - `POST /api/admin/users`
 - `DELETE /api/admin/users/{id}`
 - `PUT /api/admin/users/{id}/training`
 - `PUT /api/admin/users/{id}/recovery-code`
-
-### Administracao de setores
-
+- `PUT /api/admin/users/{id}/setores`
 - `GET /api/admin/setores`
 - `POST /api/admin/setores`
 
 ### ITs
 
-- `POST /it`
 - `GET /it`
 - `GET /it/{id}`
 - `GET /it/{id}/file`
+- `POST /it`
 - `PUT /it/{id}`
 - `DELETE /it/{id}`
 - `POST /it/upload/pdf`
@@ -106,130 +274,72 @@ O frontend consome esta API para:
 - `GET /api/pts/files`
 - `DELETE /api/pts/files/current`
 
-## Organizacao por setor
+## Banco e organizacao por setor
 
-O sistema foi preparado para operar com multiplos setores sem misturar contexto:
+O sistema usa uma base unica, mas com segregacao logica por setor:
 
-- ITs e usuarios usam setor ativo
-- o cache do assistente e os blocos indexados foram separados por setor
-- existem views por setor para leitura operacional no banco
+- usuarios vinculados a multiplos setores quando necessario
+- token JWT com `setorAtivo`
+- ITs separadas por setor
+- cache do assistente separado por setor e por IT
+- views por setor para consulta operacional
 
-Isso permite manter uma base unica e sustentavel, sem perder clareza para auditoria e manutencao.
+Isso evita mistura de contexto e mantem a manutencao do banco sustentavel.
 
-## Seguranca
+## Seguranca e boas praticas
 
-Boas praticas adotadas no projeto:
-
-- segredo nunca deve ir para o cliente
-- configuracoes sensiveis devem ficar fora do repositorio
+- segredos ficam fora do Git
 - autenticacao via JWT
-- controle de acesso por perfil e setor
-- reset de senha com token ou codigo administrativo
+- segregacao por perfil e por setor
 - arquivos protegidos por autenticacao
+- rate limit em login e recuperacao
+- upload com validacao de extensao e assinatura
+- CORS configuravel por ambiente
 
-## Configuracao local
+## O que  precisa saber
 
-O projeto usa `application.properties` como base e suporta configuracao local fora do versionamento.
+- o sistema pode rodar em container com baixo atrito
+- o arquivo `.env` do servidor deve ser preenchido antes do `docker compose up`
+- a conta SMTP usada para envio de email deve ser institucional
+- a chave do Gemini tambem deve vir por ambiente
+- para Render, Oracle ou outro ambiente, o principio e o mesmo:
+  - banco
+  - JWT secret
+  - SMTP
+  - Gemini
+  - bootstrap do super admin
 
-Arquivos recomendados:
+## Checklist rapido para deploy
 
-- `src/main/resources/application.properties`: base versionada com placeholders seguros
-- `src/main/resources/application-local.properties`: configuracao local real, fora do Git
-- `src/main/resources/application-local.example.properties`: modelo de referencia para novos ambientes
-
-Exemplos de configuracao sensivel:
-
-- banco de dados
-- segredo JWT
-- credenciais SMTP
-- credenciais de administrador bootstrap
-- chave da API Gemini
-
-Nao versione segredos reais no repositorio.
-
-## Git e deploy
-
-Arquivos que devem permanecer fora do versionamento:
-
-- `application-local.properties`
-- `.env.properties`
-- logs locais
-- notas de revisao e rascunhos operacionais
-
-Arquivos que devem ir para o GitHub:
-
-- codigo-fonte
-- `application.properties` base
-- `README.md`
-- `.gitignore`
-- `.dockerignore`
-- modelo `application-local.example.properties`
-
-## Execucao local
-
-### Requisitos
-
-- Java 17
-- Maven Wrapper
-- PostgreSQL
-
-### Subir o backend
+1. Clonar o backend.
+2. Posicionar o frontend na pasta irma `Fron-React`, se for usar `fullstack`.
+3. Criar o `.env` com as credenciais do ambiente.
+4. Rodar:
 
 ```bash
-mvnw.cmd spring-boot:run
+docker compose --profile fullstack up --build -d
 ```
 
-### Rodar testes
+5. Validar:
 
-```bash
-mvnw.cmd test
-```
+- login
+- troca de setor
+- visualizacao de IT
+- assistente
+- criacao de usuarios
+- envio de email de recuperacao
 
-## Docker Compose
+## Status atual
 
-O projeto ja possui uma base de containers para teste local e preparo de deploy:
+O projeto ja esta apto para:
 
-- `docker/backend.Dockerfile`
-- `docker/frontend.Dockerfile`
-- `docker/nginx.conf`
-- `docker-compose.yml`
-- `.env.compose.example`
+- execucao em Docker
+- demonstracao interna
+- validacao funcional por setor
+- preparacao de deploy em ambiente de teste
 
-### Como testar localmente
+Os proximos passos naturais sao:
 
-1. Copie `.env.compose.example` para `.env`
-2. Ajuste as credenciais e chaves reais
-3. Garanta que o frontend continue na pasta irma `../Fron-React`
-4. Rode:
-
-```bash
-docker compose up --build
-```
-
-### O que sobe
-
-- `postgres`: banco PostgreSQL
-- `backend`: API Spring Boot
-- `frontend`: build estatico React servido por Nginx
-
-### Observacao importante
-
-O `docker-compose.yml` atual considera a estrutura local usada hoje:
-
-- backend em `backend-assistente`
-- frontend em `../Fron-React`
-
-Para Oracle Cloud ou outro servidor, o ideal e manter os dois projetos no mesmo workspace do servidor ou adaptar o compose para usar imagens publicadas.
-
-## Estado atual do produto
-
-Hoje o sistema entrega:
-
-- controle administrativo por setor
-- gestao de usuarios e admins
-- treinamento por IT
-- consulta assistida de documentos
-- PTS por setor
-- perfil do usuario com foto e senha
-
-O proximo passo natural e a preparacao final para deploy, com endurecimento de seguranca, limpeza de configuracao sensivel e validacao do ambiente produtivo.
+- configurar segredos no ambiente de deploy
+- publicar frontend e backend
+- validar o fluxo produtivo com a TI da empresa

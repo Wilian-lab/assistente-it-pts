@@ -34,11 +34,18 @@ class AuthUseCaseTest {
   @Mock
   private TokenService tokenService;
 
+  @Mock
+  private ServiceUseCase serviceUseCase;
+
   private AuthUseCase authUseCase;
 
   @BeforeEach
   void setUp() {
-    this.authUseCase = new AuthUseCase(this.usuarioRepository, this.passwordEncoder, this.tokenService);
+    this.authUseCase = new AuthUseCase(
+        this.usuarioRepository,
+        this.passwordEncoder,
+        this.tokenService,
+        this.serviceUseCase);
   }
 
   @Test
@@ -107,5 +114,36 @@ class AuthUseCaseTest {
 
     assertEquals("jwt-master", response.accessToken());
     assertEquals("EDIFICIO_27", response.user().getSetorAtivo());
+  }
+
+  @Test
+  void shouldSwitchSectorAndReturnNewToken() {
+    var usuario = new UsuarioEntity();
+    usuario.setEmail("admin@teste.com");
+    usuario.setRole(Role.ADMIN);
+    usuario.setSetores("MOAGEM,AGRI_PRODUCTS");
+
+    when(this.usuarioRepository.findByEmail("admin@teste.com")).thenReturn(Optional.of(usuario));
+    when(this.serviceUseCase.actorCanAccessSetor(usuario, "AGRI_PRODUCTS")).thenReturn(true);
+    when(this.tokenService.generateToken("admin@teste.com", "ADMIN", "AGRI_PRODUCTS")).thenReturn("jwt-switched");
+    when(this.tokenService.getExpiresInSeconds()).thenReturn(28800L);
+
+    var response = this.authUseCase.switchSetor(usuario, "AGRI_PRODUCTS");
+
+    assertEquals("jwt-switched", response.accessToken());
+    assertEquals("AGRI_PRODUCTS", response.user().getSetorAtivo());
+  }
+
+  @Test
+  void shouldRejectSwitchSectorOutsideVisibleSetores() {
+    var usuario = new UsuarioEntity();
+    usuario.setEmail("admin@teste.com");
+    usuario.setRole(Role.ADMIN);
+    usuario.setSetores("MOAGEM");
+
+    when(this.usuarioRepository.findByEmail("admin@teste.com")).thenReturn(Optional.of(usuario));
+    when(this.serviceUseCase.actorCanAccessSetor(usuario, "REFINARIA")).thenReturn(false);
+
+    assertThrows(InvalidSetorAccessException.class, () -> this.authUseCase.switchSetor(usuario, "REFINARIA"));
   }
 }

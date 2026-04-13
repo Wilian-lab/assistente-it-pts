@@ -15,8 +15,10 @@ import com.wlilan.backend_assistent.DTO.MessageResponseDTO;
 import com.wlilan.backend_assistent.DTO.RecoveryCodeResetRequestDTO;
 import com.wlilan.backend_assistent.DTO.ResetPasswordRequestDTO;
 import com.wlilan.backend_assistent.DTO.SetorOptionDTO;
+import com.wlilan.backend_assistent.DTO.SwitchSetorDTO;
 import com.wlilan.backend_assistent.DTO.TokenResponseDTO;
 import com.wlilan.backend_assistent.Security.RequestRateLimiter;
+import com.wlilan.backend_assistent.usuario.UsuarioEntity;
 import com.wlilan.backend_assistent.usuario.useCases.AuthUseCase;
 import com.wlilan.backend_assistent.usuario.useCases.ServiceUseCase;
 import com.wlilan.backend_assistent.usuario.useCases.passwordreset.PasswordResetUseCase;
@@ -59,6 +61,21 @@ public class AuthController {
         "Muitas tentativas para este usuario. Aguarde alguns minutos e tente novamente.");
     var response = this.authUseCase.execute(authDTO);
     return ResponseEntity.ok(response);
+  }
+
+  @PostMapping("/switch-sector")
+  public ResponseEntity<TokenResponseDTO> switchSector(
+      @Valid @RequestBody SwitchSetorDTO payload,
+      HttpServletRequest request,
+      org.springframework.security.core.Authentication authentication) {
+    var actor = (UsuarioEntity) authentication.getPrincipal();
+    this.requestRateLimiter.checkLimit(
+        "auth-switch-sector-ip",
+        resolveClientIp(request),
+        30,
+        300,
+        "Muitas trocas de setor em pouco tempo. Aguarde alguns instantes e tente novamente.");
+    return ResponseEntity.ok(this.authUseCase.switchSetor(actor, payload.setor()));
   }
 
   @GetMapping("/setores")
