@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wlilan.backend_assistent.assistant.dto.AssistantAskRequest;
 import com.wlilan.backend_assistent.assistant.dto.AssistantAskResponse;
+import com.wlilan.backend_assistent.assistant.dto.AssistantBenchmarkRequest;
+import com.wlilan.backend_assistent.assistant.dto.AssistantBenchmarkResponse;
 import com.wlilan.backend_assistent.assistant.dto.AssistantContextResponse;
 import com.wlilan.backend_assistent.assistant.dto.AssistantOptionsResponse;
 import com.wlilan.backend_assistent.usuario.UsuarioEntity;
@@ -24,12 +26,15 @@ public class AssistantController {
 
   private final AssistantService assistantService;
   private final AssistantMaintenanceService assistantMaintenanceService;
+  private final AssistantBenchmarkService assistantBenchmarkService;
 
   public AssistantController(
       AssistantService assistantService,
-      AssistantMaintenanceService assistantMaintenanceService) {
+      AssistantMaintenanceService assistantMaintenanceService,
+      AssistantBenchmarkService assistantBenchmarkService) {
     this.assistantService = assistantService;
     this.assistantMaintenanceService = assistantMaintenanceService;
+    this.assistantBenchmarkService = assistantBenchmarkService;
   }
 
   @PostMapping("/ask")
@@ -61,11 +66,25 @@ public class AssistantController {
   @PostMapping("/reindex")
   public ResponseEntity<?> reindex(Authentication authentication) {
     var usuario = (UsuarioEntity) authentication.getPrincipal();
-    if (usuario.getRole() == null || !"ADMIN".equalsIgnoreCase(usuario.getRole().name())) {
+    if (usuario.getRole() == null
+        || (!"ADMIN".equalsIgnoreCase(usuario.getRole().name())
+            && !"SUPER_ADMIN".equalsIgnoreCase(usuario.getRole().name()))) {
       return ResponseEntity.status(HttpStatus.FORBIDDEN)
           .body(java.util.Map.of("message", "Somente administradores podem reconstruir o indice do assistente."));
     }
 
     return ResponseEntity.ok(this.assistantMaintenanceService.rebuildAll());
+  }
+
+  @PostMapping("/benchmark")
+  public ResponseEntity<AssistantBenchmarkResponse> benchmark(
+      @Valid @RequestBody AssistantBenchmarkRequest request,
+      Authentication authentication) {
+    var usuario = (UsuarioEntity) authentication.getPrincipal();
+    if (usuario.getRole() == null || !"ADMIN".equalsIgnoreCase(usuario.getRole().name())) {
+      return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
+
+    return ResponseEntity.ok(this.assistantBenchmarkService.run(request, usuario));
   }
 }

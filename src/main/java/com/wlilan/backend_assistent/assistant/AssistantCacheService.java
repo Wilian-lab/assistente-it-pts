@@ -21,7 +21,7 @@ import com.wlilan.backend_assistent.it.ItEntity;
 @Service
 public class AssistantCacheService {
 
-  private static final String CACHE_NAMESPACE = "assistant-v26-setor-document-query-structured-rich-cache";
+  private static final String CACHE_NAMESPACE = "assistant-v24-setor-document-query-structured-rich-cache";
 
   private final AssistantCacheRepository assistantCacheRepository;
   private final AssistantIntentDetector intentDetector;
@@ -85,6 +85,10 @@ public class AssistantCacheService {
       return null;
     }
 
+    if (isLowValueResponse(cachedEntry.getResponseMessage())) {
+      return null;
+    }
+
     cachedEntry.setHitCount((cachedEntry.getHitCount() == null ? 0L : cachedEntry.getHitCount()) + 1L);
     cachedEntry.setLastAccessedAt(LocalDateTime.now());
     cachedEntry.setUpdatedAt(LocalDateTime.now());
@@ -104,10 +108,6 @@ public class AssistantCacheService {
             "mode", "database_cache",
             "model", savedEntry.getModel(),
             "intent", savedEntry.getIntent().toLowerCase(Locale.ROOT),
-            "provider", "cache",
-            "freshResponse", false,
-            "originalSourceType", firstNonBlank(savedEntry.getOriginalSourceType(), "unknown"),
-            "originalProvider", firstNonBlank(savedEntry.getOriginalProvider(), "unknown"),
             "cacheHit", true,
             "createdAt", savedEntry.getCreatedAt().toString(),
             "hitCount", savedEntry.getHitCount()))
@@ -122,7 +122,7 @@ public class AssistantCacheService {
       String documentVersion,
       String cacheModelKey,
       AssistantAskRequest request,
-      AssistantAskResponse response) {
+      String answer) {
     var now = LocalDateTime.now();
     var normalizedSector = normalizeSector(setor, selectedIt);
     var entry = this.assistantCacheRepository
@@ -133,7 +133,15 @@ public class AssistantCacheService {
             normalizedQuestion,
             documentVersion,
             cacheModelKey)
-        .orElseGet(AssistantCacheEntry::new);
+        .orElseGet(() -> {
+          var reusableExisting = findReusableCachedEntry(
+              selectedIt,
+              normalizedSector,
+              intent,
+              normalizedQuestion,
+              documentVersion);
+          return reusableExisting != null ? reusableExisting : new AssistantCacheEntry();
+        });
     entry.setItId(selectedIt.getId());
     entry.setSetor(normalizedSector);
     entry.setIntent(intent.name());
@@ -143,9 +151,7 @@ public class AssistantCacheService {
     entry.setDocumento(firstNonBlank(selectedIt.getDocumento(), request.documentCode()));
     entry.setTitulo(firstNonBlank(selectedIt.getTitulo(), request.documentTitle(), selectedIt.getDocumento()));
     entry.setRevisao(AssistantTextSanitizer.sanitize(selectedIt.getRevisao()));
-    entry.setResponseMessage(AssistantTextSanitizer.sanitize(response.message()));
-    entry.setOriginalSourceType(firstNonBlank(response.sourceType(), "unknown"));
-    entry.setOriginalProvider(resolveProvider(response));
+    entry.setResponseMessage(AssistantTextSanitizer.sanitize(answer));
     if (entry.getCreatedAt() == null) {
       entry.setCreatedAt(now);
     }
@@ -153,29 +159,6 @@ public class AssistantCacheService {
     entry.setLastAccessedAt(now);
     entry.setHitCount(entry.getHitCount() == null ? 1L : entry.getHitCount() + 1L);
     this.assistantCacheRepository.save(entry);
-  }
-
-  private String resolveProvider(AssistantAskResponse response) {
-    if (response == null) {
-      return "unknown";
-    }
-
-    var metadata = response.metadata();
-    if (metadata != null) {
-      var provider = metadata.get("provider");
-      if (provider != null && hasText(String.valueOf(provider))) {
-        return String.valueOf(provider).trim();
-      }
-    }
-
-    var sourceType = firstNonBlank(response.sourceType());
-    if (sourceType.startsWith("gemini")) {
-      return "gemini";
-    }
-    if (sourceType.startsWith("it_")) {
-      return "local_index";
-    }
-    return "unknown";
   }
 
   public String resolveDocumentVersion(ItEntity selectedIt) {
@@ -199,8 +182,8 @@ public class AssistantCacheService {
         selectedIt.getDataPublicacao() == null ? "-" : selectedIt.getDataPublicacao().toString()));
   }
 
-  public String buildCacheModelKey(AssistantResponseMode responseMode, AssistantIntent intent) {
-    var modelKey = "gemini-primary";
+  public String buildCacheModelKey(AssistantResponseMode responseMode, AssistantIntent intent, String openRouterModel) {
+    var modelKey = firstNonBlank(openRouterModel, "default");
     return CACHE_NAMESPACE
         + "|" + responseMode.name().toLowerCase(Locale.ROOT)
         + "|" + intent.name().toLowerCase(Locale.ROOT)
@@ -222,6 +205,18 @@ public class AssistantCacheService {
       }
     }
     return "";
+  }
+
+  private boolean isLowValueResponse(String responseMessage) {
+    var normalized = this.intentDetector.normalize(responseMessage);
+    if (!hasText(normalized)) {
+      return true;
+    }
+
+    return normalized.contains("nao encontrei esse ponto de forma clara na it selecionada")
+        || normalized.contains("nao encontrei esse ponto com seguranca na it selecionada")
+        || normalized.contains("nao encontrei um trecho especifico na it para essa pergunta")
+        || normalized.contains("posso procurar por outro termo, resumir a it ou te ajudar a refinar a pergunta");
   }
 
   private AssistantCacheEntry findSimilarCachedEntry(
@@ -276,6 +271,51 @@ public class AssistantCacheService {
     }
 
     return bestScore >= 0.97d ? bestCandidate : null;
+  }
+
+  private AssistantCacheEntry findReusableCachedEntry(
+      ItEntity selectedIt,
+      String normalizedSector,
+      AssistantIntent intent,
+      String normalizedQuestion,
+      String documentVersion) {
+    var exactAnyVersion = this.assistantCacheRepository
+        .findFirstByItIdAndSetorAndIntentAndNormalizedQuestionOrderByUpdatedAtDesc(
+            selectedIt.getId(),
+            normalizedSector,
+            intent.name(),
+            normalizedQuestion)
+        .orElse(null);
+
+    if (exactAnyVersion != null) {
+      return exactAnyVersion;
+    }
+
+    var candidates = this.assistantCacheRepository
+        .findTop100ByItIdAndSetorAndIntentOrderByUpdatedAtDesc(
+            selectedIt.getId(),
+            normalizedSector,
+            intent.name());
+
+    AssistantCacheEntry bestCandidate = null;
+    double bestScore = 0d;
+    for (var candidate : candidates) {
+      var score = similarityScore(normalizedQuestion, candidate.getNormalizedQuestion());
+      if (score > bestScore) {
+        bestScore = score;
+        bestCandidate = candidate;
+      }
+    }
+
+    if (bestScore < 0.97d || bestCandidate == null) {
+      return null;
+    }
+
+    if (documentVersion.equals(bestCandidate.getDocumentVersion())) {
+      return bestCandidate;
+    }
+
+    return bestCandidate;
   }
 
   private double similarityScore(String left, String right) {

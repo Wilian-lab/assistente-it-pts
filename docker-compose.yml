@@ -1,5 +1,6 @@
 services:
   postgres:
+    profiles: ['docker-db']
     image: postgres:16-alpine
     container_name: assistente-postgres
     restart: unless-stopped
@@ -8,14 +9,14 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-assistant_db}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
 
   backend:
     build:
@@ -23,19 +24,18 @@ services:
       dockerfile: docker/backend.Dockerfile
     container_name: assistente-backend
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/auth/setores > /dev/null || exit 1"]
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:8080/auth/setores > /dev/null || exit 1']
       interval: 15s
       timeout: 5s
       retries: 10
       start_period: 45s
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-assistant_db}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/assistant_db}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-postgres}
       SPRING_JPA_HIBERNATE_DDL_AUTO: ${SPRING_JPA_HIBERNATE_DDL_AUTO:-update}
       SPRING_JPA_SHOW_SQL: ${SPRING_JPA_SHOW_SQL:-false}
       SECURITY_TOKEN_SECRET: ${SECURITY_TOKEN_SECRET}
@@ -61,14 +61,14 @@ services:
       APP_STORAGE_BASE_DIR: /data/assistente_chatbot/pts_chatbot
       APP_STORAGE_PTS_EXCEL_PATH: /data/assistente_chatbot/pts_chatbot/data/PTS_Agriproducts_02.xlsx
       APP_STORAGE_IT_DIR: /data/assistente_chatbot/pts_chatbot/docs/ITs
-      ASSISTANT_IT_INDEX_PATH: /data/assistente_chatbot/pts_chatbot/index/it_index.json
+      ASSISTANT_IT_INDEX_PATH: /data/assistente_chatbot/pts_chatbot/data/it_index.json
     ports:
-      - "${BACKEND_PORT:-8080}:8080"
+      - '${BACKEND_PORT:-8080}:8080'
     volumes:
-      - assistente_storage:/data/assistente_chatbot/pts_chatbot
+      - '${APP_STORAGE_HOST_DIR:-E:/Assistente/assistente_chatbot/pts_chatbot}:/data/assistente_chatbot/pts_chatbot'
 
   frontend:
-    profiles: ["fullstack"]
+    profiles: ['fullstack']
     build:
       context: ${FRONTEND_CONTEXT:-../Fron-React}
       dockerfile: ../backend-assistente/docker/frontend.Dockerfile
@@ -81,8 +81,8 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "${FRONTEND_PORT:-5173}:80"
+      - '${FRONTEND_PORT:-5173}:80'
 
 volumes:
-  postgres_data:
   assistente_storage:
+  postgres_data:

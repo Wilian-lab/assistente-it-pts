@@ -21,7 +21,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.wlilan.backend_assistent.Security.SetorSupport;
 import com.wlilan.backend_assistent.assistant.model.ItIndex;
 import com.wlilan.backend_assistent.assistant.model.ItIndexEntry;
 import com.wlilan.backend_assistent.it.ItEntity;
@@ -928,7 +927,6 @@ public class AssistantDocumentIndexService {
     var entity = new AssistantDocumentBlockEntity();
     entity.setItId(it.getId());
     entity.setDocumento(firstNonBlank(entry.documentCode, it.getDocumento()));
-    entity.setSetor(SetorSupport.normalize(it.getSetor()));
     entity.setTitulo(firstNonBlank(entry.documentTitle, it.getTitulo(), it.getDocumento()));
     entity.setRevisao(firstNonBlank(it.getRevisao(), ""));
     entity.setStatus(firstNonBlank(it.getStatus(), ""));

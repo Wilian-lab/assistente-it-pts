@@ -7,8 +7,6 @@ import java.util.Locale;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.wlilan.backend_assistent.assistant.dto.AssistantAskRequest;
@@ -23,13 +21,13 @@ import com.wlilan.backend_assistent.usuario.UsuarioEntity;
 
 @Service
 public class AssistantService {
-  private static final Logger LOGGER = LoggerFactory.getLogger(AssistantService.class);
 
   private final GetItByIdUseCase getItByIdUseCase;
   private final AssistantIntentDetector assistantIntentDetector;
   private final AssistantIndexSearcher assistantIndexSearcher;
   private final AssistantResponseFormatter assistantResponseFormatter;
   private final AssistantGeminiClient assistantGeminiClient;
+  private final AssistantOpenRouterClient assistantOpenRouterClient;
   private final AssistantCacheService assistantCacheService;
 
   public AssistantService(
@@ -38,16 +36,22 @@ public class AssistantService {
       AssistantIndexSearcher assistantIndexSearcher,
       AssistantResponseFormatter assistantResponseFormatter,
       AssistantGeminiClient assistantGeminiClient,
+      AssistantOpenRouterClient assistantOpenRouterClient,
       AssistantCacheService assistantCacheService) {
     this.getItByIdUseCase = getItByIdUseCase;
     this.assistantIntentDetector = assistantIntentDetector;
     this.assistantIndexSearcher = assistantIndexSearcher;
     this.assistantResponseFormatter = assistantResponseFormatter;
     this.assistantGeminiClient = assistantGeminiClient;
+    this.assistantOpenRouterClient = assistantOpenRouterClient;
     this.assistantCacheService = assistantCacheService;
   }
 
   public AssistantAskResponse ask(AssistantAskRequest request, UsuarioEntity usuario) {
+    return ask(request, usuario, null, false);
+  }
+
+  public AssistantAskResponse ask(AssistantAskRequest request, UsuarioEntity usuario, String modelOverride, boolean disableCache) {
     try {
       var setorAtivo = firstNonBlank(request.setorAtivo(), usuario.getSetorAtivo(), usuario.getSetor());
       var selectedIt = this.getItByIdUseCase.execute(parseUuid(request.itId()), setorAtivo);
@@ -57,12 +61,14 @@ public class AssistantService {
       var responseMode = resolveResponseMode(intent);
       var normalizedQuestion = buildNormalizedQuestion(request, intent);
       var documentVersion = this.assistantCacheService.resolveDocumentVersion(selectedIt);
+      var effectiveModel = firstNonBlank(modelOverride, this.assistantOpenRouterClient.getPrimaryModel());
       var cacheModelKey = this.assistantCacheService.buildCacheModelKey(
           responseMode,
-          intent);
+          intent,
+          effectiveModel);
       var useDatabaseCache = shouldUseDatabaseCache(responseMode, request);
 
-      if (useDatabaseCache) {
+      if (!disableCache && useDatabaseCache) {
         var cachedResponse = this.assistantCacheService.findCachedResponse(
             selectedIt,
             setorAtivo,
@@ -77,12 +83,12 @@ public class AssistantService {
 
       AssistantAskResponse response;
       if (responseMode == AssistantResponseMode.CONVERSATION) {
-        response = buildConversationResponse(selectedIt, request, intent);
+        response = buildConversationResponse(selectedIt, request, intent, modelOverride);
       } else {
-        response = buildDocumentGroundedResponse(selectedIt, request, intent);
+        response = buildDocumentGroundedResponse(selectedIt, request, intent, modelOverride);
       }
 
-      if (useDatabaseCache && shouldCacheResponse(response)) {
+      if (!disableCache && useDatabaseCache && shouldCacheResponse(response)) {
         this.assistantCacheService.saveResponse(
             selectedIt,
             setorAtivo,
@@ -91,16 +97,12 @@ public class AssistantService {
             documentVersion,
             cacheModelKey,
             request,
-            response);
+            response.message());
       }
       return response;
     } catch (IllegalArgumentException exception) {
       throw exception;
     } catch (Exception exception) {
-      LOGGER.error("Falha ao responder consulta do assistente para itId={} mensagem={}",
-          request != null ? request.itId() : null,
-          request != null ? request.message() : null,
-          exception);
       return AssistantAskResponse.builder()
           .message("Nao encontrei esse ponto com seguranca na IT selecionada. Se quiser, eu posso tentar outra busca com mais termos ou voce pode escolher um passo da IT.")
           .sourceType("assistant_safe_fallback")
@@ -108,8 +110,6 @@ public class AssistantService {
           .evidence(java.util.List.of())
           .metadata(java.util.Map.of(
               "mode", "safe_fallback",
-              "provider", "local_index",
-              "freshResponse", false,
               "cacheHit", false))
           .build();
     }
@@ -141,7 +141,6 @@ public class AssistantService {
         .sampleQuestions(buildSampleQuestions(selectedIt, opcoes, anomalyCount))
         .metadata(java.util.Map.of(
             "mode", "selected_it_context",
-            "provider", "local_index",
             "chatReady", true,
             "sourcePolicy", "selected_it_only"))
         .build();
@@ -273,7 +272,8 @@ public class AssistantService {
   private AssistantAskResponse buildConversationResponse(
       com.wlilan.backend_assistent.it.ItEntity selectedIt,
       AssistantAskRequest request,
-      AssistantIntent intent) {
+      AssistantIntent intent,
+      String modelOverride) {
     var messages = this.assistantResponseFormatter.buildConversationMessages(selectedIt, request, intent);
     try {
       var answer = this.assistantGeminiClient.chat(messages, 0.7d);
@@ -284,20 +284,33 @@ public class AssistantService {
           answer,
           this.assistantGeminiClient.getPrimaryModel());
     } catch (IllegalArgumentException exception) {
-      return this.assistantResponseFormatter.buildConversationUnavailableResponse(
-          selectedIt,
-          request,
-          intent,
-          exception.getMessage(),
-          this.assistantGeminiClient.getPrimaryModel());
+      var geminiError = exception.getMessage();
+      var effectiveModel = firstNonBlank(modelOverride, this.assistantOpenRouterClient.getPrimaryModel());
+      try {
+        var answer = this.assistantOpenRouterClient.chat(messages, 0.7d, modelOverride, modelOverride == null || modelOverride.isBlank());
+        return this.assistantResponseFormatter.buildConversationResponse(
+            selectedIt,
+            request,
+            intent,
+            answer,
+            effectiveModel);
+      } catch (IllegalArgumentException openRouterException) {
+        return this.assistantResponseFormatter.buildConversationUnavailableResponse(
+            selectedIt,
+            request,
+            intent,
+            firstNonBlank(openRouterException.getMessage(), geminiError),
+            firstNonBlank(effectiveModel, this.assistantGeminiClient.getPrimaryModel()));
+      }
     }
   }
 
   private AssistantAskResponse buildDocumentGroundedResponse(
       com.wlilan.backend_assistent.it.ItEntity selectedIt,
       AssistantAskRequest request,
-      AssistantIntent intent) {
-    var effectiveModel = this.assistantGeminiClient.getPrimaryModel();
+      AssistantIntent intent,
+      String modelOverride) {
+    var effectiveModel = firstNonBlank(modelOverride, this.assistantGeminiClient.getPrimaryModel());
     var index = this.assistantIndexSearcher.loadIndex(selectedIt);
     var documentInfoResponse = buildDocumentInfoResponseIfApplicable(selectedIt, request, index);
     if (documentInfoResponse != null) {
@@ -319,26 +332,13 @@ public class AssistantService {
     }
 
     if (shouldUseFastGroundedResponse(request, matches)) {
-      try {
-        return this.assistantResponseFormatter.buildFastDocumentGroundedResponse(
-            selectedIt,
-            request,
-            matches,
-            index,
-            responseIntent,
-            "local_grounded_fastpath");
-      } catch (Exception exception) {
-        LOGGER.warn("Falha no fastpath local do assistente para itId={} mensagem={}. Usando fallback seguro.",
-            selectedIt.getId(),
-            request.message(),
-            exception);
-        return this.assistantResponseFormatter.buildSafeLocalGroundedResponse(
-            selectedIt,
-            request,
-            matches,
-            responseIntent,
-            "local_grounded_safe_fallback");
-      }
+      return this.assistantResponseFormatter.buildFastDocumentGroundedResponse(
+          selectedIt,
+          request,
+          matches,
+          index,
+          responseIntent,
+          "local_grounded_fastpath");
     }
 
     try {
@@ -347,7 +347,7 @@ public class AssistantService {
           request,
           matches);
       var answer = this.assistantGeminiClient.chat(messages, 0.35d);
-      return this.assistantResponseFormatter.buildDocumentGroundedResponse(
+      return this.assistantResponseFormatter.buildOpenRouterResponse(
           selectedIt,
           request,
           matches,
@@ -355,24 +355,27 @@ public class AssistantService {
           answer,
           this.assistantGeminiClient.getPrimaryModel());
     } catch (IllegalArgumentException geminiException) {
+      var openRouterModel = firstNonBlank(modelOverride, this.assistantOpenRouterClient.getPrimaryModel());
       try {
-        return this.assistantResponseFormatter.buildStructuredResponse(
+        var messages = this.assistantResponseFormatter.buildDocumentGroundedMessages(
             selectedIt,
             request,
-            matches,
-            index,
-            responseIntent);
-      } catch (Exception exception) {
-        LOGGER.warn("Falha no fallback estruturado do assistente para itId={} mensagem={}. Usando resposta local segura.",
-            selectedIt.getId(),
-            request.message(),
-            exception);
-        return this.assistantResponseFormatter.buildSafeLocalGroundedResponse(
+            matches);
+        var answer = this.assistantOpenRouterClient.chat(messages, 0.35d, modelOverride, modelOverride == null || modelOverride.isBlank());
+        return this.assistantResponseFormatter.buildOpenRouterResponse(
             selectedIt,
             request,
             matches,
             responseIntent,
-            "structured_safe_fallback");
+            answer,
+            openRouterModel);
+      } catch (IllegalArgumentException openRouterException) {
+      return this.assistantResponseFormatter.buildStructuredResponse(
+          selectedIt,
+          request,
+          matches,
+          index,
+          responseIntent);
       }
     }
   }
@@ -592,7 +595,21 @@ public class AssistantService {
 
     var sourceType = firstNonBlank(response.sourceType());
     return !"conversation_provider_unavailable".equalsIgnoreCase(sourceType)
-        && !"assistant_safe_fallback".equalsIgnoreCase(sourceType);
+        && !"assistant_safe_fallback".equalsIgnoreCase(sourceType)
+        && !isLowValueResponse(response);
+  }
+
+  private boolean isLowValueResponse(AssistantAskResponse response) {
+    var message = firstNonBlank(response.message());
+    var normalized = this.assistantIntentDetector.normalize(message);
+    if (!hasText(normalized)) {
+      return true;
+    }
+
+    return "it_no_evidence".equalsIgnoreCase(firstNonBlank(response.sourceType()))
+        || normalized.contains("nao encontrei esse ponto de forma clara na it selecionada")
+        || normalized.contains("nao encontrei esse ponto com seguranca na it selecionada")
+        || normalized.contains("nao encontrei um trecho especifico na it para essa pergunta");
   }
 
   private UUID parseUuid(String raw) {

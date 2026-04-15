@@ -55,12 +55,6 @@ public class AssistantCacheEntry {
   @Column(nullable = false, columnDefinition = "TEXT")
   private String responseMessage;
 
-  @Column(length = 120)
-  private String originalSourceType;
-
-  @Column(length = 80)
-  private String originalProvider;
-
   @Column(nullable = false)
   private LocalDateTime createdAt;
 
