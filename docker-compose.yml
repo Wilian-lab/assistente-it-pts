@@ -70,8 +70,8 @@ services:
   frontend:
     profiles: ['fullstack']
     build:
-      context: ${FRONTEND_CONTEXT:-../Fron-React}
-      dockerfile: ../backend-assistente/docker/frontend.Dockerfile
+      context: ${FRONTEND_CONTEXT:-./frontend}
+      dockerfile: ../docker/frontend.Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8081}
         VITE_ASSISTANT_PROVIDER: ${VITE_ASSISTANT_PROVIDER:-backend}

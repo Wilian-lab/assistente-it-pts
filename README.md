@@ -63,21 +63,15 @@ cd assistente-it-pts
 
 ### Frontend para subir o full stack no Compose
 
-O `docker-compose.yml` deste repositório sobe o frontend apenas no profile `fullstack`, e espera o frontend em uma pasta irma chamada `Fron-React`.
+O `docker-compose.yml` deste repositório sobe o frontend apenas no profile `fullstack`, usando a pasta `frontend` deste mesmo repositório.
 
 Estrutura esperada:
 
 ```text
-<workspace>\
-  assistente-it-pts\
-  Fron-React\
-```
-
-Exemplo:
-
-```bash
-git clone https://github.com/Wilian-lab/assistente-it-pts.git
-git clone <repo-do-frontend> Fron-React
+assistente-it-pts\
+  docker\
+  frontend\
+  src\
 ```
 
 Se voce quiser subir apenas backend + banco, o repositório atual sozinho ja basta.
@@ -98,7 +92,6 @@ Arquivos sensiveis nao devem ir para o Git:
 POSTGRES_DB=assistant_db
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=uma-senha-forte
-POSTGRES_PORT=5433
 
 BACKEND_PORT=8081
 FRONTEND_PORT=5173
@@ -158,7 +151,7 @@ Servicos:
 
 ### Subir full stack com frontend
 
-Se o frontend estiver na pasta irma `../Fron-React`:
+Com o frontend dentro da pasta `frontend` deste repositório:
 
 ```bash
 docker compose --profile fullstack up --build -d
@@ -312,7 +305,7 @@ Isso evita mistura de contexto e mantem a manutencao do banco sustentavel.
 ## Checklist rapido para deploy
 
 1. Clonar o backend.
-2. Posicionar o frontend na pasta irma `Fron-React`, se for usar `fullstack`.
+2. Garantir que a pasta `frontend` esteja presente no repositório, se for usar `fullstack`.
 3. Criar o `.env` com as credenciais do ambiente.
 4. Rodar:
 
