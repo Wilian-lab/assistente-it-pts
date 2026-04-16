@@ -4,6 +4,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -179,6 +180,9 @@ public class ServiceUseCase {
     if (user.getRole() == Role.SUPER_ADMIN) {
       throw new IllegalArgumentException("Nao e permitido excluir o super administrador por este fluxo.");
     }
+    user.setSetoresRelacionados(List.of());
+    user.syncLegacySetorFields();
+    this.usuarioRepository.saveAndFlush(user);
     this.usuarioRepository.delete(user);
   }
 
@@ -353,8 +357,24 @@ public class ServiceUseCase {
           .orElseThrow(() -> new IllegalArgumentException("Usuario nao encontrado"));
     }
 
-    return this.usuarioRepository.findByIdAndSetorCodigo(userId, SetorSupport.normalize(actor.getSetorAtivo()))
+    var managedUser = this.usuarioRepository.findById(userId)
         .orElseThrow(() -> new IllegalArgumentException("Usuario nao encontrado"));
+
+    var allowedSetores = expandAllowedSetores(actor.getSetorCodes());
+    if (allowedSetores.isEmpty()) {
+      var setorAtivo = SetorSupport.normalize(actor.getSetorAtivo());
+      if (!setorAtivo.isBlank()) {
+        allowedSetores.add(setorAtivo);
+      }
+    }
+
+    var userSetores = new LinkedHashSet<>(managedUser.getSetorCodes());
+    userSetores.retainAll(allowedSetores);
+    if (userSetores.isEmpty()) {
+      throw new IllegalArgumentException("Usuario nao encontrado");
+    }
+
+    return managedUser;
   }
 
   private boolean isSuperAdmin(UsuarioEntity actor) {
