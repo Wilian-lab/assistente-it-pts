@@ -95,8 +95,6 @@ public class AssistantSetorViewRunner implements CommandLineRunner {
           titulo,
           revisao,
           response_message,
-          original_source_type,
-          original_provider,
           created_at,
           updated_at,
           last_accessed_at,

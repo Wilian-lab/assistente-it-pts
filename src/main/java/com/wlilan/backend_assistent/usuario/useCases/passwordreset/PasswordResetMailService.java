@@ -1,9 +1,9 @@
 package com.wlilan.backend_assistent.usuario.useCases.passwordreset;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.beans.factory.ObjectProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -93,11 +93,11 @@ public class PasswordResetMailService {
 
         Guarde esse codigo em local seguro. Ele podera ser usado para redefinir sua senha.
         """.formatted(
-            firstNonBlank(usuario.getName(), "usuario"),
-            intro,
-            usuario.getEmail(),
-            firstNonBlank(setor, "Nao informado"),
-            recoveryCode).trim());
+        firstNonBlank(usuario.getName(), "usuario"),
+        intro,
+        usuario.getEmail(),
+        firstNonBlank(setor, "Nao informado"),
+        recoveryCode).trim());
 
     send(message, "Nao foi possivel enviar o email com o codigo de recuperacao.");
   }
@@ -111,15 +111,21 @@ public class PasswordResetMailService {
   }
 
   private void send(SimpleMailMessage message, String errorMessage) {
+    if (this.mailSender == null) {
+      throw new MailDeliveryException(
+          "O envio de email nao esta configurado. Configure SMTP para enviar emails.",
+          null);
+    }
+
     try {
       this.mailSender.send(message);
     } catch (Exception exception) {
       log.error(
-          "Falha ao enviar email via SMTP. from={}, to={}, host={}, username={}",
-          message.getFrom(),
-          String.join(",", message.getTo() == null ? new String[0] : message.getTo()),
+          "Falha ao enviar email via SMTP. host={}, usernameConfigured={}, fromConfigured={}, recipientsCount={}",
           this.mailHost,
-          this.mailUsername,
+          isFilled(this.mailUsername),
+          isFilled(message.getFrom()),
+          message.getTo() == null ? 0 : message.getTo().length,
           exception);
       throw new MailDeliveryException(errorMessage, exception);
     }
