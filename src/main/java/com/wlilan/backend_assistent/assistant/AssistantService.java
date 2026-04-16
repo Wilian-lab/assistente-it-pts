@@ -317,7 +317,7 @@ public class AssistantService {
       return documentInfoResponse;
     }
     var matches = request.selectedStep() != null
-        ? this.assistantIndexSearcher.findExactOptionMatches(index, request)
+        ? resolveSelectedStepMatches(index, selectedIt, request, intent)
         : this.assistantIndexSearcher.findTopMatches(index, selectedIt, request, intent);
     var responseIntent = resolveResponseIntent(intent, matches);
 
@@ -378,6 +378,77 @@ public class AssistantService {
           responseIntent);
       }
     }
+  }
+
+  private java.util.List<com.wlilan.backend_assistent.assistant.model.RankedEntry> resolveSelectedStepMatches(
+      com.wlilan.backend_assistent.assistant.model.ItIndex index,
+      com.wlilan.backend_assistent.it.ItEntity selectedIt,
+      AssistantAskRequest request,
+      AssistantIntent intent) {
+    var exactMatches = this.assistantIndexSearcher.findExactOptionMatches(index, request);
+    if (!exactMatches.isEmpty()) {
+      return exactMatches;
+    }
+
+    var stepScopedFallback = findTitleDrivenStepMatches(index, selectedIt, request, intent);
+    if (!stepScopedFallback.isEmpty()) {
+      return stepScopedFallback;
+    }
+
+    return findDocumentWideTitleMatches(index, selectedIt, request, intent);
+  }
+
+  private java.util.List<com.wlilan.backend_assistent.assistant.model.RankedEntry> findTitleDrivenStepMatches(
+      com.wlilan.backend_assistent.assistant.model.ItIndex index,
+      com.wlilan.backend_assistent.it.ItEntity selectedIt,
+      AssistantAskRequest request,
+      AssistantIntent intent) {
+    var titleQuery = firstNonBlank(request.selectedOptionTitle(), request.message());
+    if (!hasText(titleQuery) || request.selectedStep() == null) {
+      return java.util.List.of();
+    }
+
+    var syntheticRequest = new AssistantAskRequest(
+        request.itId(),
+        titleQuery,
+        request.documentCode(),
+        request.documentTitle(),
+        request.fileUrl(),
+        request.setorAtivo(),
+        null,
+        null,
+        request.selectedOptionTitle(),
+        request.history());
+
+    return this.assistantIndexSearcher.findTopMatches(index, selectedIt, syntheticRequest, intent).stream()
+        .filter(match -> match.entry() != null && request.selectedStep().equals(match.entry().step))
+        .limit(3)
+        .toList();
+  }
+
+  private java.util.List<com.wlilan.backend_assistent.assistant.model.RankedEntry> findDocumentWideTitleMatches(
+      com.wlilan.backend_assistent.assistant.model.ItIndex index,
+      com.wlilan.backend_assistent.it.ItEntity selectedIt,
+      AssistantAskRequest request,
+      AssistantIntent intent) {
+    var titleQuery = firstNonBlank(request.selectedOptionTitle(), request.message());
+    if (!hasText(titleQuery)) {
+      return java.util.List.of();
+    }
+
+    var syntheticRequest = new AssistantAskRequest(
+        request.itId(),
+        titleQuery,
+        request.documentCode(),
+        request.documentTitle(),
+        request.fileUrl(),
+        request.setorAtivo(),
+        null,
+        null,
+        request.selectedOptionTitle(),
+        request.history());
+
+    return this.assistantIndexSearcher.findTopMatches(index, selectedIt, syntheticRequest, intent);
   }
 
   private AssistantAskResponse buildDocumentInfoResponseIfApplicable(

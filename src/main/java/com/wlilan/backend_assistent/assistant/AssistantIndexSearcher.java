@@ -76,9 +76,27 @@ public class AssistantIndexSearcher {
       return List.of();
     }
 
-    return findBestEntryForStep(index, request.selectedStep(), request.selectedPage(), request.selectedOptionTitle())
-        .map(entry -> List.of(new RankedEntry(entry, 999d, true)))
-        .orElseGet(List::of);
+    var stepEntries = stepEntries(index, request.selectedStep());
+    if (stepEntries.isEmpty()) {
+      return List.of();
+    }
+
+    var primaryEntry = findBestEntryForStep(index, request.selectedStep(), request.selectedPage(), request.selectedOptionTitle())
+        .orElse(stepEntries.get(0));
+
+    var ordered = new ArrayList<ItIndexEntry>();
+    ordered.add(primaryEntry);
+    stepEntries.stream()
+        .filter(entry -> entry != primaryEntry)
+        .forEach(ordered::add);
+
+    double score = 999d;
+    var matches = new ArrayList<RankedEntry>();
+    for (var entry : ordered) {
+      matches.add(new RankedEntry(entry, score, true));
+      score = Math.max(900d, score - 1d);
+    }
+    return matches;
   }
 
   public java.util.Optional<ItIndexEntry> findBestEntryForStep(

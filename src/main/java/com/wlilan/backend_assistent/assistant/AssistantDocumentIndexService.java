@@ -67,7 +67,7 @@ public class AssistantDocumentIndexService {
       "no inicio da operacao ",
       "no inicio da operacao ",
       "parada brusca ");
-  private static final String INDEX_SCHEMA_VERSION = "assistant-index-v7-utf8-sanitized";
+  private static final String INDEX_SCHEMA_VERSION = "assistant-index-v8-multipage-step-carry";
 
   private final AssistantDocumentBlockRepository assistantDocumentBlockRepository;
   private final ObjectMapper objectMapper;
@@ -214,10 +214,10 @@ public class AssistantDocumentIndexService {
         metadata.absorb(pageText, it);
         var tableResult = extractTableEntries(document, it, metadata, pageIndex + 1, carryStep, carryWhat, carryTableKind);
         var pageEntries = tableResult.entries().isEmpty()
-            ? parseTextTableEntries(it, metadata, pageText, pageIndex + 1)
+            ? parseTextTableEntries(it, metadata, pageText, pageIndex + 1, carryStep)
             : tableResult.entries();
         if (pageEntries.isEmpty()) {
-          pageEntries = parsePageEntries(it, metadata, pageText, pageIndex + 1);
+          pageEntries = parsePageEntries(it, metadata, pageText, pageIndex + 1, carryStep);
         }
         entries.addAll(pageEntries);
 
@@ -253,10 +253,18 @@ public class AssistantDocumentIndexService {
     return normalized;
   }
 
-  private List<ItIndexEntry> parsePageEntries(ItEntity it, ExtractedMetadata metadata, String pageText, int pageNumber) {
+  private List<ItIndexEntry> parsePageEntries(
+      ItEntity it,
+      ExtractedMetadata metadata,
+      String pageText,
+      int pageNumber,
+      Integer carryStep) {
     var entries = new ArrayList<ItIndexEntry>();
     var sections = splitSections(pageText);
     Integer currentStep = extractStepHint(pageText);
+    if (currentStep == null && shouldContinuePreviousStep(pageText, sections, carryStep)) {
+      currentStep = carryStep;
+    }
 
     for (var section : sections) {
       if (!hasText(section)) {
@@ -278,14 +286,24 @@ public class AssistantDocumentIndexService {
     return entries;
   }
 
-  private List<ItIndexEntry> parseTextTableEntries(ItEntity it, ExtractedMetadata metadata, String pageText, int pageNumber) {
+  private List<ItIndexEntry> parseTextTableEntries(
+      ItEntity it,
+      ExtractedMetadata metadata,
+      String pageText,
+      int pageNumber,
+      Integer carryStep) {
     if (FLATTENED_OPERATION_HEADER.matcher(firstNonBlank(pageText, "")).find()) {
-      return parseFlattenedOperationTable(it, metadata, pageText, pageNumber);
+      return parseFlattenedOperationTable(it, metadata, pageText, pageNumber, carryStep);
     }
     return List.of();
   }
 
-  private List<ItIndexEntry> parseFlattenedOperationTable(ItEntity it, ExtractedMetadata metadata, String pageText, int pageNumber) {
+  private List<ItIndexEntry> parseFlattenedOperationTable(
+      ItEntity it,
+      ExtractedMetadata metadata,
+      String pageText,
+      int pageNumber,
+      Integer carryStep) {
     var headerMatcher = FLATTENED_OPERATION_HEADER.matcher(firstNonBlank(pageText, ""));
     if (!headerMatcher.find()) {
       return List.of();
@@ -316,6 +334,18 @@ public class AssistantDocumentIndexService {
       entry.how = parsed.how();
       entry.care = parsed.care();
       entries.add(finalizeEntry(entry, it));
+    }
+
+    if (entries.isEmpty() && carryStep != null) {
+      var continuation = splitFlattenedOperationBlock(flattened);
+      if (hasText(continuation.what(), continuation.how(), continuation.care())) {
+        var entry = buildBaseTableEntry(it, metadata, pageNumber, "step");
+        entry.step = carryStep;
+        entry.what = continuation.what();
+        entry.how = continuation.how();
+        entry.care = continuation.care();
+        entries.add(finalizeEntry(entry, it));
+      }
     }
 
     return entries;
@@ -551,6 +581,46 @@ public class AssistantDocumentIndexService {
         })
         .toList();
     return String.join("\n", careLines);
+  }
+
+  private boolean shouldContinuePreviousStep(String pageText, List<String> sections, Integer carryStep) {
+    if (carryStep == null || sections == null || sections.isEmpty()) {
+      return false;
+    }
+
+    var normalizedPage = this.assistantIntentDetector.normalize(pageText);
+    if (!hasText(normalizedPage)
+        || normalizedPage.contains("anomalia")
+        || normalizedPage.contains("acao corretiva")
+        || normalizedPage.contains("possiveis causas")) {
+      return false;
+    }
+
+    var meaningfulSections = sections.stream()
+        .map(this::cleanCell)
+        .filter(this::hasText)
+        .filter(section -> !looksLikeCodeOrNoise(section))
+        .toList();
+    if (meaningfulSections.isEmpty()) {
+      return false;
+    }
+
+    return meaningfulSections.stream()
+        .map(this.assistantIntentDetector::normalize)
+        .anyMatch(section -> section.contains("como fazer")
+            || section.contains("o que fazer")
+            || section.contains("cuidados especiais")
+            || section.contains("anomali")
+            || section.contains("verificar ")
+            || section.contains("operar ")
+            || section.contains("ligar ")
+            || section.contains("monitorar ")
+            || section.contains("ajustar ")
+            || section.contains("procedimento ")
+            || section.contains("manter ")
+            || section.contains("reduzir ")
+            || section.contains("fechar ")
+            || section.contains("aguardar "));
   }
 
   private List<PositionedChunk> extractPageChunks(PDDocument document, int pageNumber) throws IOException {
