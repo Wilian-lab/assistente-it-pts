@@ -1,0 +1,86 @@
+services:
+  - type: web
+    runtime: docker
+    name: assistente-it-backend
+    plan: free
+    region: virginia
+    dockerfilePath: ./docker/backend.Dockerfile
+    dockerContext: .
+    healthCheckPath: /auth/setores
+    disk:
+      name: assistente-storage
+      mountPath: /var/data/assistente
+      sizeGB: 5
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: assistente-it-db
+          property: connectionString
+      - key: SPRING_JPA_HIBERNATE_DDL_AUTO
+        value: update
+      - key: SPRING_JPA_SHOW_SQL
+        value: "false"
+      - key: SECURITY_TOKEN_SECRET
+        generateValue: true
+      - key: SECURITY_TOKEN_EXPIRES_IN_SECONDS
+        value: "28800"
+      - key: APP_ADMIN_NAME
+        value: Administrador Sistema
+      - key: APP_ADMIN_EMAIL
+        sync: false
+      - key: APP_ADMIN_PASSWORD
+        sync: false
+      - key: APP_ADMIN_SETORES
+        value: GLOBAL
+      - key: APP_PASSWORD_RESET_FRONTEND_URL
+        sync: false
+      - key: APP_SECURITY_ALLOWED_ORIGIN_PATTERNS
+        sync: false
+      - key: SPRING_MAIL_HOST
+        sync: false
+      - key: SPRING_MAIL_PORT
+        value: "587"
+      - key: SPRING_MAIL_USERNAME
+        sync: false
+      - key: SPRING_MAIL_PASSWORD
+        sync: false
+      - key: SPRING_MAIL_SMTP_AUTH
+        value: "true"
+      - key: SPRING_MAIL_SMTP_STARTTLS_ENABLE
+        value: "true"
+      - key: SPRING_MAIL_SMTP_STARTTLS_REQUIRED
+        value: "true"
+      - key: ASSISTANT_GEMINI_API_KEY
+        sync: false
+      - key: APP_STORAGE_BASE_DIR
+        value: /var/data/assistente
+      - key: APP_STORAGE_PTS_EXCEL_PATH
+        value: /var/data/assistente/data/PTS_Agriproducts_02.xlsx
+      - key: APP_STORAGE_IT_DIR
+        value: /var/data/assistente/docs/ITs
+      - key: ASSISTANT_IT_INDEX_PATH
+        value: /var/data/assistente/data/it_index.json
+
+  - type: web
+    runtime: static
+    name: assistente-it-frontend
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+      - key: VITE_ASSISTANT_PROVIDER
+        value: backend
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+databases:
+  - name: assistente-it-db
+    plan: free
+    region: virginia
+    databaseName: assistant_db
