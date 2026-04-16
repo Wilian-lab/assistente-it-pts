@@ -21,7 +21,7 @@ interface UploadItPdfOptions {
   prazoTreinamentoDias?: number
 }
 
-async function uploadMultipart(path: string, formData: FormData): Promise<{ message: string; path?: string }> {
+async function uploadMultipart(path: string, formData: FormData): Promise<{ message: string }> {
   const token = getAccessToken()
   const headers = new Headers()
   if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -52,7 +52,7 @@ async function uploadMultipart(path: string, formData: FormData): Promise<{ mess
     throw new UploadError(message, response.status)
   }
 
-  return response.json() as Promise<{ message: string; path?: string }>
+  return response.json() as Promise<{ message: string }>
 }
 
 export const uploadService = {

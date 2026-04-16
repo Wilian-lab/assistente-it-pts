@@ -25,7 +25,6 @@ interface ChatItOption {
   label: string
   title: string
   code: string
-  fileUrl?: string
   setor?: string
 }
 
@@ -241,10 +240,6 @@ function buildSectorScopedItOptions(rawIts: NonNullable<ReturnType<typeof useIts
       return []
     }
 
-    if (!String(it.fileUrl ?? '').trim()) {
-      return []
-    }
-
     const title = getItDisplayTitle(it)
     const code = getItDisplayCode(it)
     const key = `${title}::${code}`.trim().toLowerCase()
@@ -258,7 +253,6 @@ function buildSectorScopedItOptions(rawIts: NonNullable<ReturnType<typeof useIts
         label: `${title} (${code})`,
         title,
         code,
-        fileUrl: it.fileUrl,
         setor: it.setor,
       },
     ]
@@ -368,7 +362,6 @@ export function ChatPanel({
         message: text,
         documentCode: selectedIt?.code,
         documentTitle: selectedIt?.title,
-        fileUrl: selectedIt?.fileUrl,
         setorAtivo: String(selectedIt?.setor ?? activeSector).trim(),
         selectedStep: option?.passo ?? null,
         selectedPage: option?.pagina ?? null,

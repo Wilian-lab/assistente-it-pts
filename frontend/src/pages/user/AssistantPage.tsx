@@ -34,7 +34,6 @@ export function AssistantPage() {
           id: it.id,
           code: getItDisplayCode(it),
           title: getItDisplayTitle(it),
-          fileUrl: it.fileUrl,
           setor: it.setor,
           label: `${getItDisplayTitle(it)} (${getItDisplayCode(it)})`,
         })),
@@ -95,7 +94,6 @@ export function AssistantPage() {
         message: trimmedMessage,
         documentCode: selectedIt?.code,
         documentTitle: selectedIt?.title,
-        fileUrl: selectedIt?.fileUrl,
         setorAtivo: String(selectedIt?.setor ?? user?.setorAtivo ?? '').trim(),
         history,
       })

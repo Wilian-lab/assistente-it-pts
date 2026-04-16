@@ -27,7 +27,6 @@ export interface PtsItemData {
 export interface PtsFileInfo {
   setor: string
   fileName: string
-  path: string
   size: number
   lastModified: string
   recordsCount: number

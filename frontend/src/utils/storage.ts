@@ -11,7 +11,7 @@ function hasWindow() {
 
 function readExpiresAt(): number | null {
   if (!hasWindow()) return null
-  const raw = window.localStorage.getItem(ACCESS_TOKEN_EXPIRES_AT_KEY)
+  const raw = window.sessionStorage.getItem(ACCESS_TOKEN_EXPIRES_AT_KEY)
   const value = Number(raw)
   return Number.isFinite(value) && value > 0 ? value : null
 }
@@ -27,23 +27,23 @@ export function getAccessToken(): string | null {
     invalidateAuthSession('expired')
     return null
   }
-  return window.localStorage.getItem(ACCESS_TOKEN_KEY)
+  return window.sessionStorage.getItem(ACCESS_TOKEN_KEY)
 }
 
 export function setAuthSession(token: string, expiresInSeconds?: number): void {
   if (!hasWindow()) return
-  window.localStorage.setItem(ACCESS_TOKEN_KEY, token)
+  window.sessionStorage.setItem(ACCESS_TOKEN_KEY, token)
   if (typeof expiresInSeconds === 'number' && Number.isFinite(expiresInSeconds) && expiresInSeconds > 0) {
-    window.localStorage.setItem(ACCESS_TOKEN_EXPIRES_AT_KEY, String(Date.now() + expiresInSeconds * 1000))
+    window.sessionStorage.setItem(ACCESS_TOKEN_EXPIRES_AT_KEY, String(Date.now() + expiresInSeconds * 1000))
   } else {
-    window.localStorage.removeItem(ACCESS_TOKEN_EXPIRES_AT_KEY)
+    window.sessionStorage.removeItem(ACCESS_TOKEN_EXPIRES_AT_KEY)
   }
 }
 
 export function clearAccessToken(): void {
   if (!hasWindow()) return
-  window.localStorage.removeItem(ACCESS_TOKEN_KEY)
-  window.localStorage.removeItem(ACCESS_TOKEN_EXPIRES_AT_KEY)
+  window.sessionStorage.removeItem(ACCESS_TOKEN_KEY)
+  window.sessionStorage.removeItem(ACCESS_TOKEN_EXPIRES_AT_KEY)
 }
 
 export function invalidateAuthSession(reason: AuthInvalidationReason): void {

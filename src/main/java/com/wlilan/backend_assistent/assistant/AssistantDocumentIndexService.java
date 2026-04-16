@@ -78,7 +78,7 @@ public class AssistantDocumentIndexService {
       AssistantDocumentBlockRepository assistantDocumentBlockRepository,
       ObjectMapper objectMapper,
       AssistantIntentDetector assistantIntentDetector,
-      @Value("${assistant.it-index.path:frontend/public/data/it_index.json}") String itIndexPath) {
+      @Value("${assistant.it-index.path}") String itIndexPath) {
     this.assistantDocumentBlockRepository = assistantDocumentBlockRepository;
     this.objectMapper = objectMapper;
     this.assistantIntentDetector = assistantIntentDetector;

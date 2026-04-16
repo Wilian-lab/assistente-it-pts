@@ -144,8 +144,7 @@ public class ItController {
     var savedPath = this.uploadItFileUseCase.uploadPtsExcel(file, setorAtivo);
     this.ptsImportService.importFile(Path.of(savedPath), setorAtivo);
     return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
-        "message", "Planilha PTS enviada com sucesso",
-        "path", savedPath));
+        "message", "Planilha PTS enviada com sucesso"));
   }
 
   @PostMapping("/upload/pdf")
@@ -175,8 +174,7 @@ public class ItController {
         totalPaginas,
         prazoTreinamentoDias));
     return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
-        "message", "Arquivo PDF enviado com sucesso",
-        "path", savedPath));
+        "message", "Arquivo PDF enviado com sucesso"));
   }
 
   @PostMapping("/sync")

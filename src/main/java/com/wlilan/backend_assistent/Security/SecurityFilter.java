@@ -60,7 +60,7 @@ public class SecurityFilter extends OncePerRequestFilter {
 
           SecurityContextHolder.getContext().setAuthentication(authentication);
         } else {
-          log.warn("JWT validated but no user found with email={}", validation.subject());
+          log.warn("JWT validado, mas nenhum usuario foi encontrado para o subject informado.");
         }
       } else {
         if (validation.isExpired()) {

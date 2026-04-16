@@ -234,7 +234,7 @@ export function FilesPage() {
             </thead>
             <tbody>
               {ptsFiles.map((file) => (
-                <tr key={file.path}>
+                <tr key={`${file.setor}-${file.fileName}`}>
                   <td>{file.setor}</td>
                   <td>{file.fileName}</td>
                   <td>{file.lastModified}</td>
