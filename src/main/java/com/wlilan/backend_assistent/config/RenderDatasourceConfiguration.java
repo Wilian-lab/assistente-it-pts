@@ -19,9 +19,11 @@ public class RenderDatasourceConfiguration {
 
   @Bean
   @Primary
-  @ConditionalOnProperty(name = "DATABASE_URL")
+  @ConditionalOnProperty(name = "database.url")
   public DataSource renderDataSource(Environment environment) {
-    var databaseUrl = firstNonBlank(environment.getProperty("DATABASE_URL"));
+    var databaseUrl = firstNonBlank(
+        environment.getProperty("DATABASE_URL"),
+        environment.getProperty("database.url"));
     var uri = URI.create(databaseUrl);
     var credentials = parseCredentials(uri.getUserInfo());
 
