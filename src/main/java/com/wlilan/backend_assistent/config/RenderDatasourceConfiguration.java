@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets;
 
 import javax.sql.DataSource;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -19,30 +18,49 @@ public class RenderDatasourceConfiguration {
 
   @Bean
   @Primary
-  @ConditionalOnProperty(name = "database.url")
   public DataSource renderDataSource(Environment environment) {
     var databaseUrl = firstNonBlank(
+        environment.getProperty("SPRING_DATASOURCE_URL"),
         environment.getProperty("DATABASE_URL"),
         environment.getProperty("database.url"));
-    var uri = URI.create(databaseUrl);
-    var credentials = parseCredentials(uri.getUserInfo());
-
-    var host = firstNonBlank(uri.getHost());
-    var port = uri.getPort() > 0 ? uri.getPort() : 5432;
-    var database = firstNonBlank(stripLeadingSlash(uri.getPath()), "assistant_db");
-    var query = hasText(uri.getQuery()) ? "?" + uri.getQuery().trim() : "";
 
     var dataSource = new HikariDataSource();
-    dataSource.setJdbcUrl(firstNonBlank(
-        environment.getProperty("SPRING_DATASOURCE_URL"),
-        "jdbc:postgresql://" + host + ":" + port + "/" + database + query));
-    dataSource.setUsername(firstNonBlank(
-        environment.getProperty("SPRING_DATASOURCE_USERNAME"),
-        credentials.username()));
-    dataSource.setPassword(firstNonBlank(
-        environment.getProperty("SPRING_DATASOURCE_PASSWORD"),
-        credentials.password()));
+    if (isJdbcUrl(databaseUrl)) {
+      dataSource.setJdbcUrl(databaseUrl);
+      dataSource.setUsername(firstNonBlank(
+          environment.getProperty("SPRING_DATASOURCE_USERNAME"),
+          "postgres"));
+      dataSource.setPassword(firstNonBlank(environment.getProperty("SPRING_DATASOURCE_PASSWORD")));
+      return dataSource;
+    }
+
+    if (hasText(databaseUrl)) {
+      var uri = URI.create(databaseUrl);
+      var credentials = parseCredentials(uri.getUserInfo());
+      var host = firstNonBlank(uri.getHost());
+      var port = uri.getPort() > 0 ? uri.getPort() : 5432;
+      var database = firstNonBlank(stripLeadingSlash(uri.getPath()), "assistant_db");
+      var query = hasText(uri.getQuery()) ? "?" + uri.getQuery().trim() : "";
+
+      dataSource.setJdbcUrl("jdbc:postgresql://" + host + ":" + port + "/" + database + query);
+      dataSource.setUsername(firstNonBlank(
+          environment.getProperty("SPRING_DATASOURCE_USERNAME"),
+          credentials.username(),
+          "postgres"));
+      dataSource.setPassword(firstNonBlank(
+          environment.getProperty("SPRING_DATASOURCE_PASSWORD"),
+          credentials.password()));
+      return dataSource;
+    }
+
+    dataSource.setJdbcUrl("jdbc:postgresql://localhost:5432/assistant_db");
+    dataSource.setUsername(firstNonBlank(environment.getProperty("SPRING_DATASOURCE_USERNAME"), "postgres"));
+    dataSource.setPassword(firstNonBlank(environment.getProperty("SPRING_DATASOURCE_PASSWORD")));
     return dataSource;
+  }
+
+  private boolean isJdbcUrl(String value) {
+    return hasText(value) && value.trim().toLowerCase().startsWith("jdbc:");
   }
 
   private Credentials parseCredentials(String userInfo) {
