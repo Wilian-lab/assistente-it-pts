@@ -1,3 +1,6 @@
+<img width="1523" height="910" alt="2" src="https://github.com/user-attachments/assets/cfca8c96-b94c-4734-9719-bc4c42b2a33a" />
+<img width="1524" height="917" alt="3" src="https://github.com/user-attachments/assets/0e1f04d8-752f-48de-8e5e-0e4110bb803c" />
+
 # Backend Assistente IT PTS
 
 API Spring Boot do sistema de controle de ITs, PTS, treinamento operacional e assistente documental por setor.
