@@ -18,6 +18,8 @@ import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,6 +69,10 @@ public class PtsImportService {
 
   static {
     COLUMN_RENAME.put("unnamed: 1", "etapa");
+    COLUMN_RENAME.put("etapa", "etapa");
+    COLUMN_RENAME.put("etapa do processo", "etapa");
+    COLUMN_RENAME.put("etapa de processo", "etapa");
+    COLUMN_RENAME.put("processo", "etapa");
     COLUMN_RENAME.put("item", "item");
     COLUMN_RENAME.put("variavel", "variavel");
     COLUMN_RENAME.put("classificacao", "classificacao");
@@ -79,14 +85,20 @@ public class PtsImportService {
     COLUMN_RENAME.put("ponto de coleta", "ponto_coleta");
     COLUMN_RENAME.put("amostra", "amostra");
     COLUMN_RENAME.put("metodo analise", "metodo_analise");
+    COLUMN_RENAME.put("metodo de analise", "metodo_analise");
     COLUMN_RENAME.put("tag", "tag");
     COLUMN_RENAME.put("tag aspen", "tag_aspen");
     COLUMN_RENAME.put("abaixo do limite", "acao_abaixo");
+    COLUMN_RENAME.put("acao abaixo", "acao_abaixo");
     COLUMN_RENAME.put("acima do limite", "acao_acima");
+    COLUMN_RENAME.put("acao acima", "acao_acima");
     COLUMN_RENAME.put("fca", "fca");
     COLUMN_RENAME.put("vai no app", "vai_no_app");
     COLUMN_RENAME.put("vai no apps", "vai_no_app");
     COLUMN_RENAME.put("documento referencia", "documento_referencia");
+    COLUMN_RENAME.put("documento de referencia", "documento_referencia");
+    COLUMN_RENAME.put("documentos de referencia", "documento_referencia");
+    COLUMN_RENAME.put("doc referencia", "documento_referencia");
     COLUMN_RENAME.put("unnamed: 20", "documento_referencia");
   }
 
@@ -132,17 +144,18 @@ public class PtsImportService {
       var records = new ArrayList<PtsRecordEntity>();
 
       for (Map.Entry<String, String> sheetEntry : SHEET_MAP.entrySet()) {
-        Sheet sheet = workbook.getSheet(sheetEntry.getKey());
+        Sheet sheet = findSheet(workbook, sheetEntry.getKey(), sheetEntry.getValue());
         if (sheet == null) {
           log.info("PTS import: aba '{}' nao encontrada no arquivo {}", sheetEntry.getKey(), filePath);
           continue;
         }
 
-        var columnMap = readHeaderMap(sheet);
+        int headerIndex = findHeaderRowIndex(sheet);
+        var columnMap = readHeaderMap(sheet, headerIndex);
         validateRequiredColumns(columnMap, sheet.getSheetName());
 
         String currentEtapa = "";
-        for (int rowIndex = HEADER_ROW_INDEX + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
+        for (int rowIndex = headerIndex + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
           Row row = sheet.getRow(rowIndex);
           if (isEmptyRow(row)) {
             continue;
@@ -270,21 +283,128 @@ public class PtsImportService {
     return null;
   }
 
-  private Map<String, Integer> readHeaderMap(Sheet sheet) {
-    Row headerRow = sheet.getRow(HEADER_ROW_INDEX);
+  private Map<String, Integer> readHeaderMap(Sheet sheet, int headerIndex) {
+    Row headerRow = sheet.getRow(headerIndex);
     if (headerRow == null) {
       return Map.of();
     }
 
+    Row prevRow = headerIndex > 0 ? sheet.getRow(headerIndex - 1) : null;
     var columns = new LinkedHashMap<String, Integer>();
-    for (Cell cell : headerRow) {
-      var rawHeader = normalizeHeader(dataFormatter.formatCellValue(cell));
+    int maxCols = Math.max((int) headerRow.getLastCellNum(), 25);
+
+    for (int colIndex = 0; colIndex < maxCols; colIndex++) {
+      Cell cell = headerRow.getCell(colIndex);
+      String rawHeader = cell != null ? normalizeHeader(dataFormatter.formatCellValue(cell)) : "";
+
+      // 1. Se a celula na linha do cabecalho estiver em branco, verificar a linha anterior (ex: B6 "Etapa do Processo" ou U6 "Documento referencia")
+      if (rawHeader.isBlank() && prevRow != null) {
+        Cell prevCell = prevRow.getCell(colIndex);
+        if (prevCell != null) {
+          rawHeader = normalizeHeader(dataFormatter.formatCellValue(prevCell));
+        }
+      }
+
+      // 2. Se ainda estiver em branco, verificar se faz parte de regiao mesclada (merged region)
+      if (rawHeader.isBlank()) {
+        rawHeader = normalizeHeader(getMergedCellValue(sheet, headerIndex, colIndex));
+      }
+
       if (rawHeader.isBlank()) {
         continue;
       }
-      columns.put(COLUMN_RENAME.getOrDefault(rawHeader, rawHeader), cell.getColumnIndex());
+
+      columns.put(COLUMN_RENAME.getOrDefault(rawHeader, rawHeader), colIndex);
     }
+
+    // 3. Fallbacks para garantir que "etapa" e "documento_referencia" sejam mapeados
+    if (!columns.containsKey("etapa")) {
+      Integer itemIndex = columns.get("item");
+      if (itemIndex != null && itemIndex > 0) {
+        columns.put("etapa", itemIndex - 1);
+      } else {
+        columns.put("etapa", 1);
+      }
+    }
+
+    if (!columns.containsKey("documento_referencia")) {
+      Integer vaiNoAppIndex = columns.get("vai_no_app");
+      if (vaiNoAppIndex != null) {
+        columns.put("documento_referencia", vaiNoAppIndex + 1);
+      } else {
+        columns.put("documento_referencia", 20);
+      }
+    }
+
     return columns;
+  }
+
+  private String getMergedCellValue(Sheet sheet, int rowIndex, int colIndex) {
+    for (CellRangeAddress range : sheet.getMergedRegions()) {
+      if (range.isInRange(rowIndex, colIndex)) {
+        Row r = sheet.getRow(range.getFirstRow());
+        if (r != null) {
+          Cell c = r.getCell(range.getFirstColumn());
+          if (c != null) {
+            return dataFormatter.formatCellValue(c);
+          }
+        }
+      }
+    }
+    return "";
+  }
+
+  private int findHeaderRowIndex(Sheet sheet) {
+    Row defaultHeader = sheet.getRow(HEADER_ROW_INDEX);
+    if (defaultHeader != null && rowContainsAny(defaultHeader, "item", "variavel")) {
+      return HEADER_ROW_INDEX;
+    }
+    for (int r = 0; r <= Math.min(sheet.getLastRowNum(), 15); r++) {
+      Row row = sheet.getRow(r);
+      if (row != null && rowContainsAny(row, "item", "variavel")) {
+        return r;
+      }
+    }
+    return HEADER_ROW_INDEX;
+  }
+
+  private boolean rowContainsAny(Row row, String... keywords) {
+    for (Cell cell : row) {
+      String text = normalizeHeader(dataFormatter.formatCellValue(cell));
+      for (String kw : keywords) {
+        if (text.contains(kw)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private Sheet findSheet(Workbook workbook, String targetKey, String productName) {
+    Sheet sheet = workbook.getSheet(targetKey);
+    if (sheet != null) {
+      return sheet;
+    }
+    String normTarget = normalizeSheetName(targetKey);
+    String normProduct = normalizeSheetName(productName);
+    for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
+      Sheet s = workbook.getSheetAt(i);
+      String normName = normalizeSheetName(s.getSheetName());
+      if (normName.equals(normTarget) || normName.equals(normProduct) || normName.contains(normProduct)) {
+        return s;
+      }
+    }
+    return null;
+  }
+
+  private String normalizeSheetName(String name) {
+    if (name == null) {
+      return "";
+    }
+    return Normalizer.normalize(name, Normalizer.Form.NFD)
+        .replaceAll("\\p{M}", "")
+        .replaceAll("[^a-zA-Z0-9]", "")
+        .toLowerCase(Locale.ROOT);
   }
 
   private void validateRequiredColumns(Map<String, Integer> columnMap, String sheetName) {

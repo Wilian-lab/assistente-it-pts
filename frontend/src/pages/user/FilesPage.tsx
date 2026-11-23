@@ -15,7 +15,8 @@ const STATUS_OPTIONS = ['Atualizada', 'Pendente', 'Cópia não controlada'] as c
 export function FilesPage() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
-  const isAdmin = String(user?.role ?? '').toUpperCase() === 'ADMIN'
+  const role = String(user?.role ?? '').toUpperCase()
+  const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN'
   const activeSector = String(user?.setorAtivo ?? '').trim()
   const itsQuery = useIts()
   const ptsFilesQuery = useQuery({
